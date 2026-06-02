@@ -27,12 +27,19 @@ class HaClient:
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._reader_task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
+        self._connect_lock = asyncio.Lock()
         self._ha_version: str | None = None
+        self._subscribed_event_types: set[str] = set()
+        self._closing = False
+
+    def _ws_live(self) -> bool:
+        return self._ws is not None and not self._ws.closed
 
     async def connect(self, ws_url: str | None = None) -> None:
         if ws_url is not None:
             self.ws_url = ws_url
-        self._session = aiohttp.ClientSession()
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
         self._ws = await self._session.ws_connect(self.ws_url)
         first = await self._ws.receive_json()
         if first.get("type") != "auth_required":
@@ -43,7 +50,27 @@ class HaClient:
         if auth_reply.get("type") != "auth_ok":
             raise RuntimeError(f"auth failed: {auth_reply}")
         self._ha_version = auth_reply.get("ha_version", self._ha_version)
+        self._next_id = 1
+        for fut in self._pending.values():
+            if not fut.done():
+                fut.set_exception(ConnectionResetError("ha_client reconnected"))
+        self._pending.clear()
+        if self._reader_task is not None and not self._reader_task.done():
+            self._reader_task.cancel()
         self._reader_task = asyncio.create_task(self._reader())
+        for event_type in list(self._subscribed_event_types):
+            await self._send_subscribe(event_type)
+
+    async def _ensure_connected(self) -> None:
+        if self._closing:
+            raise ConnectionResetError("ha_client is closing")
+        if self._ws_live():
+            return
+        async with self._connect_lock:
+            if self._ws_live():
+                return
+            log.info("ha_client reconnecting", url=self.ws_url)
+            await self.connect()
 
     def version(self) -> str:
         return self._ha_version or "unknown"
@@ -72,6 +99,7 @@ class HaClient:
             log.warning("ha_client reader error", error=str(exc))
 
     async def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
+        await self._ensure_connected()
         assert self._ws is not None
         async with self._lock:
             msg_id = self._next_id
@@ -79,8 +107,17 @@ class HaClient:
             fut: asyncio.Future[dict[str, Any]] = asyncio.get_event_loop().create_future()
             self._pending[msg_id] = fut
             payload = {"id": msg_id, **payload}
-            await self._ws.send_json(payload)
+            try:
+                await self._ws.send_json(payload)
+            except (ConnectionResetError, RuntimeError, aiohttp.ClientError) as exc:
+                self._pending.pop(msg_id, None)
+                if not fut.done():
+                    fut.cancel()
+                raise ConnectionResetError(f"ha_client send failed: {exc}") from exc
         return await fut
+
+    async def _send_subscribe(self, event_type: str) -> None:
+        await self._request({"type": "subscribe_events", "event_type": event_type})
 
     async def fetch_entities(self) -> list[EntityRef]:
         registry_reply = await self._request({"type": "config/entity_registry/list"})
@@ -117,7 +154,8 @@ class HaClient:
         return entities
 
     async def subscribe_events(self) -> None:
-        await self._request({"type": "subscribe_events", "event_type": "state_changed"})
+        self._subscribed_event_types.add("state_changed")
+        await self._send_subscribe("state_changed")
 
     async def call_service(self, domain: str, service: str, service_data: dict[str, Any]) -> dict[str, Any]:
         reply = await self._request(
@@ -131,6 +169,7 @@ class HaClient:
         return reply
 
     async def close(self) -> None:
+        self._closing = True
         if self._reader_task is not None:
             self._reader_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
