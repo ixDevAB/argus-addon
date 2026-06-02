@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Pair Argus</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 1.5rem; max-width: 480px; margin: auto; color: #222; }
+    h1 { font-size: 1.25rem; }
+    video { width: 100%; border-radius: 8px; background: #000; }
+    input { width: 100%; padding: 0.5rem; font-size: 1rem; box-sizing: border-box; margin-top: 0.5rem; }
+    button { margin-top: 0.5rem; padding: 0.5rem 1rem; font-size: 1rem; }
+    #status { margin-top: 1rem; min-height: 1.25rem; }
+  </style>
+</head>
+<body>
+  <h1>Pair this Home with Argus</h1>
+  <p>Open the Argus iOS app and aim the camera below at the QR code shown on screen.</p>
+  <video id="v" autoplay playsinline muted></video>
+  <p>Or paste the value here:</p>
+  <input id="manual" placeholder="paste decoded token" autocomplete="off">
+  <button id="save">Save</button>
+  <p id="status"></p>
+  <script src="static/jsQR.min.js"></script>
+  <script>
+    const v = document.getElementById('v');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const status = document.getElementById('status');
+    let saved = false;
+
+    const post = async (token) => {
+      if (saved) return;
+      saved = true;
+      try {
+        const r = await fetch('token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        });
+        if (r.ok) {
+          status.textContent = 'Paired. The add-on is connecting to Argus.';
+        } else {
+          saved = false;
+          const body = await r.json().catch(() => ({}));
+          status.textContent = 'Save failed: ' + (body.error || r.statusText);
+        }
+      } catch (e) {
+        saved = false;
+        status.textContent = 'Save failed: ' + e.message;
+      }
+    };
+
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then((s) => { v.srcObject = s; requestAnimationFrame(tick); })
+        .catch(() => { status.textContent = 'Camera unavailable — paste the token instead.'; });
+    } else {
+      status.textContent = 'Camera unavailable — paste the token instead.';
+    }
+
+    function tick() {
+      if (saved) return;
+      if (v.readyState === v.HAVE_ENOUGH_DATA) {
+        canvas.width = v.videoWidth;
+        canvas.height = v.videoHeight;
+        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(img.data, img.width, img.height);
+        if (code && code.data) {
+          post(code.data);
+          return;
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+
+    document.getElementById('save').onclick = () => {
+      const t = document.getElementById('manual').value.trim();
+      if (t) post(t);
+    };
+  </script>
+</body>
+</html>

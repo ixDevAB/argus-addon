@@ -1,0 +1,4 @@
+addon:
+  argus:
+    name: "Argus"
+    description: "Connects this Home Assistant to the Argus cloud."
