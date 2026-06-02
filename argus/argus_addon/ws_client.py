@@ -9,7 +9,7 @@ import structlog
 import websockets
 
 from argus_addon import __version__
-from argus_addon.envelope import Ack, Cmd, EnvelopeAdapter, Hello
+from argus_addon.envelope import Ack, Cmd, EntityList, EnvelopeAdapter, Hello
 from argus_addon.heartbeat import HEARTBEAT_INTERVAL, heartbeat
 from argus_addon.idempotency import Idempotency
 
@@ -61,6 +61,13 @@ async def run(
                 log.info("connected", attempt=attempt)
                 hello = Hello(type="hello", addon_version=__version__, ha_version=ha_client.version())
                 await ws.send(hello.model_dump_json())
+                try:
+                    entities = await ha_client.fetch_entities()
+                    entity_list = EntityList(type="entity_list", entities=entities)
+                    await ws.send(entity_list.model_dump_json())
+                    log.info("entity_list sent", count=len(entities))
+                except Exception as exc:
+                    log.warning("entity_list send failed", error=str(exc))
                 hb_task = asyncio.create_task(heartbeat(ws, heartbeat_interval))
                 send_task = asyncio.create_task(_send_loop(ws, send_queue))
                 try:

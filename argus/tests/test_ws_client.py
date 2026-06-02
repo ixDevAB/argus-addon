@@ -9,9 +9,13 @@ class FakeHaClient:
     def __init__(self):
         self.calls: list[dict] = []
         self._version = "2026.5.0"
+        self.entities: list = []
 
     def version(self) -> str:
         return self._version
+
+    async def fetch_entities(self):
+        return list(self.entities)
 
     async def call_service(self, domain, service, service_data):
         self.calls.append({"domain": domain, "service": service, "service_data": service_data})
