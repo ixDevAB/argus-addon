@@ -12,7 +12,7 @@ result
 result-*
 
 # dev-loop env vars
-.env
+.env.local
 
 # local addon data dir (token.txt, idempotency.db)
 argus/.data/
