@@ -51,7 +51,7 @@ async def run(
             log.info("reconnect", delay=jitter, attempt=attempt)
             await asyncio.sleep(jitter)
         try:
-            ssl_ctx = ssl.create_default_context() if use_tls else None
+            ssl_ctx = ssl.create_default_context() if use_tls and url.startswith("wss://") else None
             async with websockets.connect(
                 url,
                 ssl=ssl_ctx,
