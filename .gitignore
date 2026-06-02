@@ -4,3 +4,15 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 .DS_Store
+
+# direnv + nix
+.direnv/
+.envrc.local
+result
+result-*
+
+# dev-loop env vars
+.env
+
+# local addon data dir (token.txt, idempotency.db)
+argus/.data/
