@@ -1,8 +1,15 @@
 set shell := ["bash", "-cu"]
 set dotenv-load := true
+set dotenv-filename := ".env.local"
 
 default:
     @just --list
+
+# Spot-check that .env.local is loaded. Prints public URLs and only the length of SUPERVISOR_TOKEN (never the token itself).
+env:
+    @echo "ARGUS_HA_WS_URL = ${ARGUS_HA_WS_URL:-<unset>}"
+    @echo "ARGUS_CLOUD_URL = ${ARGUS_CLOUD_URL:-<unset>}"
+    @echo "SUPERVISOR_TOKEN length = ${#SUPERVISOR_TOKEN}"
 
 # Run the addon locally against a HA Long-Lived Access Token + Argus cloud URL.
 # Required env (put in .env): SUPERVISOR_TOKEN, ARGUS_HA_WS_URL, ARGUS_CLOUD_URL.
