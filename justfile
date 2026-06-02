@@ -20,13 +20,20 @@ start:
     cd argus && \
         ARGUS_TOKEN_PATH="${ARGUS_TOKEN_PATH:-$(pwd)/.data/token.txt}" \
         ARGUS_IDEMPOTENCY_PATH="${ARGUS_IDEMPOTENCY_PATH:-$(pwd)/.data/idempotency.db}" \
-        python -m argus_addon
+        PYTHONUNBUFFERED=1 \
+        python -u -m argus_addon
+
+# Internal: runs `just start` and tees its stdout+stderr to argus/tmp/addon.log.
+# Single recipe so watchexec doesn't need shell quoting to set up the pipe.
+_start-tee:
+    @mkdir -p argus/tmp
+    just start 2>&1 | tee argus/tmp/addon.log
 
 # Run the addon and restart it on every .py change under argus/.
-# Stdout + stderr are tee'd to argus/tmp/addon.log (truncated on each restart).
+# Stdout + stderr go to both the terminal AND argus/tmp/addon.log (truncated on each restart).
 watch:
-    mkdir -p argus/tmp
-    watchexec --restart --exts py --watch argus --ignore 'tmp/**' -- bash -c 'just start 2>&1 | tee argus/tmp/addon.log'
+    @mkdir -p argus/tmp
+    watchexec --restart --exts py --watch argus --ignore 'tmp/**' -- just _start-tee
 
 test:
     cd argus && pytest
