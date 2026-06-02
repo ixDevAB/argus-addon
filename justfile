@@ -11,29 +11,28 @@ env:
     @echo "ARGUS_CLOUD_URL = ${ARGUS_CLOUD_URL:-<unset>}"
     @echo "SUPERVISOR_TOKEN length = ${#SUPERVISOR_TOKEN}"
 
-# Run the addon locally. Auto-enters the nix devshell so it works from any terminal.
-# Required env (.env.local): SUPERVISOR_TOKEN, ARGUS_HA_WS_URL, ARGUS_CLOUD_URL.
+# Run the addon locally. Required env (.env.local): SUPERVISOR_TOKEN, ARGUS_HA_WS_URL, ARGUS_CLOUD_URL.
 start:
     @test -n "${SUPERVISOR_TOKEN:-}" || (echo "missing SUPERVISOR_TOKEN — paste your HA Long-Lived Access Token into .env.local" && exit 1)
     @test -n "${ARGUS_HA_WS_URL:-}" || (echo "missing ARGUS_HA_WS_URL — e.g. ws://homeassistant.local:8123/api/websocket" && exit 1)
     @test -n "${ARGUS_CLOUD_URL:-}" || (echo "missing ARGUS_CLOUD_URL — e.g. ws://127.0.0.1:8000/ws/addon" && exit 1)
     mkdir -p argus/.data
-    nix develop --command bash -c 'cd argus && \
+    cd argus && \
         ARGUS_TOKEN_PATH="${ARGUS_TOKEN_PATH:-$(pwd)/.data/token.txt}" \
         ARGUS_IDEMPOTENCY_PATH="${ARGUS_IDEMPOTENCY_PATH:-$(pwd)/.data/idempotency.db}" \
-        python -m argus_addon'
+        python -m argus_addon
 
 test:
-    nix develop --command bash -c 'cd argus && pytest'
+    cd argus && pytest
 
 fix:
-    nix develop --command bash -c 'cd argus && ruff check --fix . && ruff format .'
+    cd argus && ruff check --fix . && ruff format .
 
 qa:
-    nix develop --command bash -c 'cd argus && ruff check . && ruff format --check .'
+    cd argus && ruff check . && ruff format --check .
 
 lock:
-    nix develop --command bash -c 'cd argus && uv lock'
+    cd argus && uv lock
 
 clean-data:
     rm -rf argus/.data
