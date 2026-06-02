@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import aiohttp
@@ -11,9 +12,15 @@ log = structlog.get_logger(__name__)
 
 
 class HaClient:
-    def __init__(self, supervisor_token: str, ws_url: str = "ws://supervisor/core/websocket"):
+    def __init__(
+        self,
+        supervisor_token: str,
+        ws_url: str = "ws://supervisor/core/websocket",
+        on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ):
         self.supervisor_token = supervisor_token
         self.ws_url = ws_url
+        self._on_event = on_event
         self._session: aiohttp.ClientSession | None = None
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._next_id = 1
@@ -48,6 +55,12 @@ class HaClient:
                 if msg.type != aiohttp.WSMsgType.TEXT:
                     continue
                 data = msg.json()
+                if data.get("type") == "event" and self._on_event is not None:
+                    try:
+                        await self._on_event(data)
+                    except Exception as exc:
+                        log.warning("ha_client on_event raised", error=str(exc))
+                    continue
                 msg_id = data.get("id")
                 if msg_id in self._pending:
                     fut = self._pending.pop(msg_id)
