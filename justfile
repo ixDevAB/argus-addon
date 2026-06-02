@@ -22,6 +22,10 @@ start:
         ARGUS_IDEMPOTENCY_PATH="${ARGUS_IDEMPOTENCY_PATH:-$(pwd)/.data/idempotency.db}" \
         python -m argus_addon
 
+# Run the addon and restart it on every .py change under argus/.
+watch:
+    watchexec --restart --exts py --watch argus -- just start
+
 test:
     cd argus && pytest
 

@@ -51,6 +51,7 @@
           buildInputs = with pkgs; [
             just
             uv
+            watchexec
             addonEnv
           ];
 
