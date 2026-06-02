@@ -91,16 +91,8 @@ class HaClient:
                 continue
             state = states_by_id.get(entity_id, {})
             attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
-            device_class = (
-                row.get("device_class")
-                or row.get("original_device_class")
-                or attrs.get("device_class")
-            )
-            friendly_name = (
-                row.get("name")
-                or row.get("friendly_name")
-                or attrs.get("friendly_name")
-            )
+            device_class = row.get("device_class") or row.get("original_device_class") or attrs.get("device_class")
+            friendly_name = row.get("name") or row.get("friendly_name") or attrs.get("friendly_name")
             entities.append(
                 EntityRef(
                     entity_id=entity_id,
