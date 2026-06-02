@@ -20,6 +20,7 @@ class EntityRef(BaseModel):
     device_class: str | None
     domain: Literal["binary_sensor", "switch"]
     friendly_name: str | None = None
+    area: str | None = None
 
 
 class EntityList(BaseModel):

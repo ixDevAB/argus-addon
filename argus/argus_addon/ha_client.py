@@ -123,6 +123,27 @@ class HaClient:
         registry_reply = await self._request({"type": "config/entity_registry/list"})
         registry_rows = registry_reply.get("result", []) or []
 
+        device_to_area: dict[str, str | None] = {}
+        try:
+            device_reply = await self._request({"type": "config/device_registry/list"})
+            for drow in device_reply.get("result", []) or []:
+                did = drow.get("id")
+                if did:
+                    device_to_area[did] = drow.get("area_id")
+        except Exception as exc:
+            log.warning("device_registry fetch failed", error=str(exc))
+
+        area_name: dict[str, str] = {}
+        try:
+            area_reply = await self._request({"type": "config/area_registry/list"})
+            for arow in area_reply.get("result", []) or []:
+                aid = arow.get("area_id")
+                name = arow.get("name")
+                if aid and name:
+                    area_name[aid] = name
+        except Exception as exc:
+            log.warning("area_registry fetch failed", error=str(exc))
+
         states_by_id: dict[str, dict[str, Any]] = {}
         try:
             states_reply = await self._request({"type": "get_states"})
@@ -143,12 +164,15 @@ class HaClient:
             attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
             device_class = row.get("device_class") or row.get("original_device_class") or attrs.get("device_class")
             friendly_name = row.get("name") or row.get("friendly_name") or attrs.get("friendly_name")
+            area_id = row.get("area_id") or device_to_area.get(row.get("device_id") or "")
+            area = area_name.get(area_id) if area_id else None
             entities.append(
                 EntityRef(
                     entity_id=entity_id,
                     device_class=device_class,
                     domain=domain,
                     friendly_name=friendly_name,
+                    area=area,
                 )
             )
         return entities
