@@ -43,7 +43,18 @@ def _build_state_forwarder(send_queue: asyncio.Queue):
                 at = datetime.now(UTC)
         else:
             at = datetime.now(UTC)
-        envelope = State(type="state", entity_id=entity_id, state=state_value, at=at)
+        raw_attrs = new_state.get("attributes") or {}
+        forwarded_attrs = {
+            k: v for k, v in raw_attrs.items()
+            if k in {"battery_level", "device_class", "friendly_name"}
+        }
+        envelope = State(
+            type="state",
+            entity_id=entity_id,
+            state=state_value,
+            at=at,
+            attributes=forwarded_attrs or None,
+        )
         await send_queue.put(envelope)
 
     return on_event

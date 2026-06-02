@@ -32,6 +32,7 @@ class State(BaseModel):
     entity_id: str
     state: str
     at: datetime
+    attributes: dict[str, Any] | None = None
 
 
 class Cmd(BaseModel):
