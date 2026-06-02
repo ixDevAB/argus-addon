@@ -30,6 +30,7 @@ def build_app(token_path: Path) -> web.Application:
             return web.json_response({"error": "token too long"}, status=400)
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text(token)
+        token_path.chmod(0o600)
         return web.json_response({"ok": True})
 
     app.router.add_get("/", index)

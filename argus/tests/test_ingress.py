@@ -1,3 +1,5 @@
+import stat
+
 import pytest_asyncio
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -30,6 +32,7 @@ async def test_post_token_writes_file(client):
     data = await resp.json()
     assert data == {"ok": True}
     assert token_path.read_text() == "abc"
+    assert stat.S_IMODE(token_path.stat().st_mode) == 0o600
 
 
 async def test_post_token_rejects_empty(client):
