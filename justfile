@@ -23,8 +23,10 @@ start:
         python -m argus_addon
 
 # Run the addon and restart it on every .py change under argus/.
+# Stdout + stderr are tee'd to argus/tmp/addon.log (truncated on each restart).
 watch:
-    watchexec --restart --exts py --watch argus -- just start
+    mkdir -p argus/tmp
+    watchexec --restart --exts py --watch argus --ignore 'tmp/**' -- bash -c 'just start 2>&1 | tee argus/tmp/addon.log'
 
 test:
     cd argus && pytest
