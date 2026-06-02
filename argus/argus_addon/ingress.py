@@ -12,8 +12,17 @@ def build_app(token_path: Path) -> web.Application:
     async def index(_request: web.Request) -> web.Response:
         if token_path.exists() and token_path.read_text().strip():
             return web.Response(
-                text="<!doctype html><html><body><h1>Argus is paired</h1>"
-                "<p>The add-on is connecting to the Argus cloud.</p></body></html>",
+                text=(
+                    "<!doctype html><html><body>"
+                    "<h1>Argus is paired</h1>"
+                    "<p>The add-on is connecting to the Argus cloud.</p>"
+                    "<form method=\"post\" action=\"/unpair\" "
+                    "onsubmit=\"return confirm('Unpair this add-on? "
+                    "You will need to enter a new install token from the Argus app.');\">"
+                    "<button type=\"submit\" style=\"margin-top:1em;\">Unpair</button>"
+                    "</form>"
+                    "</body></html>"
+                ),
                 content_type="text/html",
             )
         return web.FileResponse(STATIC_DIR / "pair.html")
@@ -33,7 +42,13 @@ def build_app(token_path: Path) -> web.Application:
         token_path.chmod(0o600)
         return web.json_response({"ok": True})
 
+    async def unpair(_request: web.Request) -> web.Response:
+        if token_path.exists():
+            token_path.unlink()
+        raise web.HTTPFound(location="/")
+
     app.router.add_get("/", index)
     app.router.add_post("/token", save_token)
+    app.router.add_post("/unpair", unpair)
     app.router.add_static("/static", STATIC_DIR)
     return app
