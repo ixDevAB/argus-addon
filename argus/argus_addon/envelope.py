@@ -56,3 +56,23 @@ Envelope = Annotated[
 ]
 
 EnvelopeAdapter = TypeAdapter(Envelope)
+
+
+class PairCode(BaseModel):
+    type: Literal["pair_code"]
+    session_id: str
+    code: str
+    expires_at: datetime
+
+
+class PairToken(BaseModel):
+    type: Literal["pair_token"]
+    install_token: str
+
+
+PairEnvelope = Annotated[
+    PairCode | PairToken,
+    Field(discriminator="type"),
+]
+
+PairEnvelopeAdapter = TypeAdapter(PairEnvelope)
