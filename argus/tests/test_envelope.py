@@ -10,6 +10,9 @@ from argus_addon.envelope import (
     EnvelopeAdapter,
     Heartbeat,
     Hello,
+    PairCode,
+    PairEnvelopeAdapter,
+    PairToken,
     State,
 )
 
@@ -121,6 +124,35 @@ def test_cmd_invalid_op():
                 "args": {},
             }
         )
+
+
+def test_pair_code_roundtrip():
+    raw = {
+        "type": "pair_code",
+        "session_id": "01939999-0000-7000-8000-000000000001",
+        "code": "012345",
+        "expires_at": "2026-05-28T12:10:00+00:00",
+    }
+    parsed = PairEnvelopeAdapter.validate_python(raw)
+    assert isinstance(parsed, PairCode)
+    assert parsed.code == "012345"
+    assert parsed.session_id == "01939999-0000-7000-8000-000000000001"
+
+
+def test_pair_token_roundtrip():
+    raw = {"type": "pair_token", "install_token": "install-token-secret"}
+    parsed = PairEnvelopeAdapter.validate_python(raw)
+    assert isinstance(parsed, PairToken)
+    assert parsed.install_token == "install-token-secret"
+
+
+def test_pair_union_is_separate_from_alarm_union():
+    # Pair frames are rejected by the alarm Envelope adapter.
+    with pytest.raises(ValidationError):
+        EnvelopeAdapter.validate_python({"type": "pair_token", "install_token": "x"})
+    # Alarm frames are rejected by the pair adapter.
+    with pytest.raises(ValidationError):
+        PairEnvelopeAdapter.validate_python({"type": "hb", "ts": "2026-05-28T12:00:00+00:00"})
 
 
 def test_envelope_json_serialization():

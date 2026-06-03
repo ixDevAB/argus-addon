@@ -10,10 +10,15 @@ class CloudMock:
     def __init__(self):
         self.received: list[dict[str, Any]] = []
         self.connections: list[ServerConnection] = []
+        self.pair_connections: list[ServerConnection] = []
+        self.pair_paths: list[str] = []
         self._server: Any | None = None
         self._port: int = 0
         self._lock = asyncio.Lock()
         self._next_event = asyncio.Event()
+        self._pair_event = asyncio.Event()
+        # When set, a pair_code is sent to every new /ws/pair connection on open.
+        self.pair_code: dict[str, Any] | None = None
 
     async def start(self) -> str:
         self._server = await serve(self._handler, "127.0.0.1", 0)
@@ -26,6 +31,10 @@ class CloudMock:
         return f"ws://127.0.0.1:{self._port}"
 
     async def _handler(self, conn: ServerConnection):
+        path = getattr(conn.request, "path", "") if conn.request is not None else ""
+        if path.endswith("/ws/pair") or "/pair" in path:
+            await self._pair_handler(conn, path)
+            return
         async with self._lock:
             self.connections.append(conn)
         try:
@@ -37,6 +46,44 @@ class CloudMock:
                 self._next_event.set()
         except websockets.ConnectionClosed:
             pass
+
+    async def _pair_handler(self, conn: ServerConnection, path: str):
+        async with self._lock:
+            self.pair_connections.append(conn)
+            self.pair_paths.append(path)
+            self._pair_event.set()
+        if self.pair_code is not None:
+            await conn.send(json.dumps(self.pair_code))
+        try:
+            async for raw in conn:
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
+                env = json.loads(raw)
+                self.received.append(env)
+                self._next_event.set()
+        except websockets.ConnectionClosed:
+            pass
+
+    async def wait_for_pair_connection(self, timeout: float = 2.0) -> ServerConnection:
+        deadline = asyncio.get_event_loop().time() + timeout
+        while True:
+            async with self._lock:
+                if self.pair_connections:
+                    return self.pair_connections[-1]
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                raise TimeoutError("no /ws/pair connection")
+            self._pair_event.clear()
+            try:
+                await asyncio.wait_for(self._pair_event.wait(), remaining)
+            except TimeoutError:
+                raise TimeoutError("no /ws/pair connection") from None
+
+    async def send_to_pair(self, env: dict[str, Any]) -> None:
+        async with self._lock:
+            targets = list(self.pair_connections)
+        for conn in targets:
+            await conn.send(json.dumps(env))
 
     async def wait_for(self, predicate, timeout: float = 2.0):
         deadline = asyncio.get_event_loop().time() + timeout
