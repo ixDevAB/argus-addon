@@ -13,10 +13,11 @@ Two WebSocket connections run concurrently, started from `argus/argus_addon/__ma
 
 Supporting modules:
 
-- `envelope.py` — the wire protocol: a pydantic discriminated union (`hb`, `hello`, `entity_list`, `state`, `cmd`, `ack`) keyed on `type`, validated via `EnvelopeAdapter`.
+- `envelope.py` — the wire protocol: a pydantic discriminated union (`hb`, `hello`, `entity_list`, `state`, `cmd`, `ack`) keyed on `type`, validated via `EnvelopeAdapter`. The pairing frames (`pair_code`, `pair_token`) live in a separate `PairEnvelope` union (`PairEnvelopeAdapter`) so they never touch the alarm-critical path.
 - `idempotency.py` — SQLite dedup of command ids. Replayed `Cmd`s are ack'd with `duplicate=True` and never re-executed.
 - `heartbeat.py` — emits `hb` frames on an interval (15s).
-- `ingress.py` — aiohttp app on port 8099. Serves `static/pair.html` (QR scan via `jsQR.min.js` or manual paste) when unpaired; `POST /token` validates and writes the token to the data dir, which unblocks `ws_client`.
+- `ingress.py` — aiohttp app on port 8099. When unpaired it displays the current claim-code (the latest `pair_code` from `pair_client`) for the user to enter in the Argus app; when paired it shows an unpair form. The user never types or scans anything into the add-on.
+- `pair_client.py` — first-run claim-code pairing. With no `/data` token it connects the token-less provisional `/ws/pair` path (derived from `cloud_url`) with the same full-jitter backoff, holds the latest `pair_code` in memory (`CodeHolder`, never persisted) for ingress + a log line, and on `pair_token` writes the install token to `/data/token.txt` (`0600`, never logged), then hands off to `ws_client` for the authenticated `/ws/addon/<token>` connection.
 
 **Command flow:** cloud sends `Cmd(op=call_service)` → dedup check → relayed to HA via `call_service` → `Ack` (with `error` on failure). Only `call_service` is dispatched today (`test_trigger` is defined in the protocol but not handled).
 
