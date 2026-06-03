@@ -7,10 +7,11 @@ from typing import Any
 import structlog
 from aiohttp import web
 
-from argus_addon import ingress, ws_client
+from argus_addon import ingress, pair_client, ws_client
 from argus_addon.envelope import State
 from argus_addon.ha_client import HaClient
 from argus_addon.idempotency import Idempotency
+from argus_addon.pair_client import CodeHolder
 
 log = structlog.get_logger(__name__)
 
@@ -19,6 +20,10 @@ DEFAULT_TOKEN_PATH = Path("/data/token.txt")
 DEFAULT_IDEMPOTENCY_PATH = Path("/data/idempotency.db")
 DEFAULT_CLOUD_URL = "wss://ws.argus.ixdev.se/ws/addon"
 DEFAULT_HA_WS_URL = "ws://supervisor/core/websocket"
+
+
+def _has_token(token_path: Path) -> bool:
+    return token_path.exists() and bool(token_path.read_text().strip())
 
 
 def _build_state_forwarder(send_queue: asyncio.Queue):
@@ -45,8 +50,7 @@ def _build_state_forwarder(send_queue: asyncio.Queue):
             at = datetime.now(UTC)
         raw_attrs = new_state.get("attributes") or {}
         forwarded_attrs = {
-            k: v for k, v in raw_attrs.items()
-            if k in {"battery_level", "device_class", "friendly_name"}
+            k: v for k, v in raw_attrs.items() if k in {"battery_level", "device_class", "friendly_name"}
         }
         envelope = State(
             type="state",
@@ -81,7 +85,8 @@ async def main():
         except Exception as exc:
             log.warning("ha_client connect failed at startup", error=str(exc))
 
-    app = ingress.build_app(token_path)
+    code_holder = CodeHolder()
+    app = ingress.build_app(token_path, code_holder)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", 8099)
@@ -89,6 +94,13 @@ async def main():
     log.info("ingress listening", host="0.0.0.0", port=8099)
 
     try:
+        if not _has_token(token_path):
+            log.info("no install token, entering pairing mode")
+            await pair_client.run_pairing(
+                token_path=token_path,
+                cloud_url=cloud_url,
+                code_holder=code_holder,
+            )
         await ws_client.run(
             token_path=token_path,
             cloud_url=cloud_url,
