@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import random
 import ssl
 from datetime import datetime
@@ -145,8 +146,14 @@ def _persist_token(token_path: Path, install_token: str) -> None:
     """
     try:
         token_path.parent.mkdir(parents=True, exist_ok=True)
-        token_path.write_text(install_token)
-        token_path.chmod(0o600)
+        # open with 0o600 + fchmod before writing so the token is never briefly
+        # readable through a default-permission window (no write-then-chmod gap)
+        fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, install_token.encode())
+        finally:
+            os.close(fd)
     except OSError as exc:
         log.error("token persist failed", error=str(exc), path=str(token_path))
         raise
