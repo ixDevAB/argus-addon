@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 
 from argus_addon import ws_client
+from argus_addon.envelope import EntityRef
 from argus_addon.idempotency import Idempotency
 
 
@@ -21,10 +22,23 @@ class FakeHaClient:
         self.calls.append({"domain": domain, "service": service, "service_data": service_data})
 
 
-async def _start_runner(cloud_mock, tmp_path, *, max_backoff=1.0, initial_backoff=0.05):
+async def _start_runner(
+    cloud_mock,
+    tmp_path,
+    *,
+    max_backoff=1.0,
+    initial_backoff=0.05,
+    ha_client=None,
+    entities=None,
+    entity_fetch_timeout=10.0,
+    entity_retry_interval=5.0,
+):
     token_path = tmp_path / "token.txt"
     token_path.write_text("test-token-xyz")
-    ha_client = FakeHaClient()
+    if ha_client is None:
+        ha_client = FakeHaClient()
+    if entities is not None:
+        ha_client.entities = entities
     send_queue: asyncio.Queue = asyncio.Queue()
     idempotency = Idempotency(":memory:")
     stop_event = asyncio.Event()
@@ -39,6 +53,8 @@ async def _start_runner(cloud_mock, tmp_path, *, max_backoff=1.0, initial_backof
             max_backoff=max_backoff,
             initial_backoff=initial_backoff,
             heartbeat_interval=5.0,
+            entity_fetch_timeout=entity_fetch_timeout,
+            entity_retry_interval=entity_retry_interval,
             stop_event=stop_event,
         )
     )
@@ -148,5 +164,83 @@ async def test_reconnect_with_jitter(cloud_mock, tmp_path, monkeypatch):
         for a, b in jitter_calls:
             assert a == 0
             assert b <= 1.0
+    finally:
+        await _stop(task, stop)
+
+
+async def test_entity_list_sent_on_connect(cloud_mock, tmp_path):
+    ents = [
+        EntityRef(
+            entity_id="binary_sensor.front_door",
+            device_class="door",
+            domain="binary_sensor",
+            friendly_name="Front Door",
+        )
+    ]
+    task, _ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path, entities=ents)
+    try:
+        env = await cloud_mock.wait_for(lambda e: e.get("type") == "entity_list", timeout=3.0)
+        ids = [x["entity_id"] for x in env["entities"]]
+        assert "binary_sensor.front_door" in ids
+    finally:
+        await _stop(task, stop)
+
+
+async def test_slow_entity_fetch_does_not_block_link(cloud_mock, tmp_path):
+    # A hanging HA entity fetch must NOT starve the heartbeat / read loop: the
+    # cloud link must still come up and relay commands.
+    hang = asyncio.Event()
+
+    class HangingHaClient(FakeHaClient):
+        async def fetch_entities(self):
+            await hang.wait()
+            return []
+
+    task, ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path, ha_client=HangingHaClient())
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        cmd = {
+            "type": "cmd",
+            "id": "01939999-0000-7000-8000-000000000099",
+            "op": "call_service",
+            "args": {
+                "domain": "switch",
+                "service": "turn_on",
+                "service_data": {"entity_id": "switch.siren_living"},
+            },
+        }
+        await cloud_mock.send_to_client(cmd)
+        ack = await cloud_mock.wait_for(lambda e: e.get("type") == "ack" and e.get("id") == cmd["id"], timeout=3.0)
+        assert ack.get("error") is None
+        assert len(ha.calls) == 1
+    finally:
+        hang.set()
+        await _stop(task, stop)
+
+
+async def test_entity_fetch_retries_until_success(cloud_mock, tmp_path):
+    attempts = {"n": 0}
+
+    class FlakyHaClient(FakeHaClient):
+        async def fetch_entities(self):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RuntimeError("ha not ready")
+            return [
+                EntityRef(
+                    entity_id="binary_sensor.kitchen",
+                    device_class="motion",
+                    domain="binary_sensor",
+                )
+            ]
+
+    task, _ha, _idem, _q, stop, _tp = await _start_runner(
+        cloud_mock, tmp_path, ha_client=FlakyHaClient(), entity_retry_interval=0.05
+    )
+    try:
+        env = await cloud_mock.wait_for(lambda e: e.get("type") == "entity_list", timeout=3.0)
+        ids = [x["entity_id"] for x in env["entities"]]
+        assert "binary_sensor.kitchen" in ids
+        assert attempts["n"] >= 2
     finally:
         await _stop(task, stop)
