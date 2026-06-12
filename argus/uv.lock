@@ -181,7 +181,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7" },
-    { name = "segno", specifier = ">=1.6" },
+    { name = "segno", specifier = ">=1.6,<2" },
     { name = "structlog", specifier = ">=24" },
     { name = "typing-extensions", specifier = ">=4.12" },
     { name = "websockets", specifier = ">=13" },
