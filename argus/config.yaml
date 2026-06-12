@@ -8,6 +8,7 @@ arch:
 init: false
 ingress: true
 ingress_port: 8099
+homeassistant_api: true
 panel_icon: "mdi:shield-home"
 panel_title: "Argus"
 map:
