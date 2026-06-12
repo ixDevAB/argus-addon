@@ -8,6 +8,7 @@ dependencies = [
     "pydantic>=2",
     "structlog>=24",
     "typing_extensions>=4.12",
+    "segno>=1.6",
 ]
 
 [project.optional-dependencies]

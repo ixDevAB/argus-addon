@@ -34,7 +34,8 @@ async def test_index_shows_current_code(client):
     assert resp.status == 200
     body = await resp.text()
     assert "012345" in body
-    assert "Enter this code in the Argus app" in body
+    assert "Scan this QR code with the Argus app" in body
+    assert "<svg" in body
 
 
 async def test_index_shows_expired_when_code_past_expiry(client):

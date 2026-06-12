@@ -2,9 +2,20 @@ import html
 from datetime import UTC, datetime
 from pathlib import Path
 
+import segno
 from aiohttp import web
 
 from argus_addon.pair_client import CodeHolder
+
+
+def _qr_svg(code: str) -> str:
+    """Render the bare claim-code as an inline SVG QR for the app's scanner.
+
+    The payload is the code verbatim (the iOS scanner feeds the decoded string
+    straight into its 6-digit field), so nothing but the digits is encoded.
+    """
+    return segno.make(code, error="m").svg_inline(scale=6, border=2)
+
 
 PAIRED_PAGE = (
     "<!doctype html><html><body>"
@@ -32,7 +43,8 @@ def _pairing_page(code_holder: CodeHolder) -> str:
         return _page(body)
     safe_code = html.escape(code)
     body = (
-        "<p>Enter this code in the Argus app for the Home you are setting up:</p>"
+        "<p>Scan this QR code with the Argus app, or enter the code below for the Home you are setting up:</p>"
+        f'<div id="qr" style="text-align:center;padding:1rem 0;max-width:240px;margin:0 auto;">{_qr_svg(code)}</div>'
         f'<div id="code" style="font-size:3rem;font-weight:700;letter-spacing:0.3rem;'
         "text-align:center;font-variant-numeric:tabular-nums;padding:1rem 0;"
         f'user-select:all;cursor:pointer;">{safe_code}</div>'
