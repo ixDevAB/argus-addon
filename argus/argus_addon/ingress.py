@@ -94,8 +94,8 @@ def build_app(
     async def unpair(_request: web.Request) -> web.Response:
         if token_path.exists():
             token_path.unlink()
-        if unpair_event is not None:
-            unpair_event.set()
+            if unpair_event is not None:
+                unpair_event.set()
         raise web.HTTPFound(location="/")
 
     app.router.add_get("/", index)
