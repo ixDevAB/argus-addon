@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest_asyncio
 from aiohttp.test_utils import TestClient, TestServer
 
+from argus_addon import ingress
 from argus_addon.ingress import build_app
 from argus_addon.pair_client import CodeHolder
 
@@ -37,6 +38,22 @@ async def test_index_shows_current_code(client):
     assert "012345" in body
     assert "Scan this QR code with the Argus app" in body
     assert "<svg" in body
+
+
+async def test_index_falls_back_to_code_only_when_qr_fails(client, monkeypatch):
+    test_client, _token_path, holder = client
+    holder.set("01939999-0000-7000-8000-000000000003", "012345", datetime.now(UTC) + timedelta(minutes=10))
+
+    def _boom(_code):
+        raise ValueError("qr boom")
+
+    monkeypatch.setattr(ingress, "_qr_svg", _boom)
+    resp = await test_client.get("/")
+    assert resp.status == 200
+    body = await resp.text()
+    assert "012345" in body
+    assert "<svg" not in body
+    assert "Enter this code in the Argus app" in body
 
 
 async def test_index_shows_expired_when_code_past_expiry(client):

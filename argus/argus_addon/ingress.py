@@ -4,9 +4,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import segno
+import structlog
 from aiohttp import web
 
 from argus_addon.pair_client import CodeHolder
+
+log = structlog.get_logger(__name__)
 
 
 def _qr_svg(code: str) -> str:
@@ -43,9 +46,16 @@ def _pairing_page(code_holder: CodeHolder) -> str:
         )
         return _page(body)
     safe_code = html.escape(code)
+    try:
+        qr_block = f'<div id="qr" style="text-align:center;padding:1rem 0;max-width:240px;margin:0 auto;">{_qr_svg(code)}</div>'
+        intro = "Scan this QR code with the Argus app, or enter the code below for the Home you are setting up:"
+    except Exception as exc:
+        log.warning("qr render failed, showing code only", error=str(exc))
+        qr_block = ""
+        intro = "Enter this code in the Argus app for the Home you are setting up:"
     body = (
-        "<p>Scan this QR code with the Argus app, or enter the code below for the Home you are setting up:</p>"
-        f'<div id="qr" style="text-align:center;padding:1rem 0;max-width:240px;margin:0 auto;">{_qr_svg(code)}</div>'
+        f"<p>{intro}</p>"
+        f"{qr_block}"
         f'<div id="code" style="font-size:3rem;font-weight:700;letter-spacing:0.3rem;'
         "text-align:center;font-variant-numeric:tabular-nums;padding:1rem 0;"
         f'user-select:all;cursor:pointer;">{safe_code}</div>'
