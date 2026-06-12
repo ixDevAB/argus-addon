@@ -107,6 +107,8 @@ async def main():
                     code_holder=code_holder,
                 )
             if not _has_token(token_path):
+                log.warning("pairing returned without a token, retrying")
+                await asyncio.sleep(1.0)
                 continue
             unpair_event.clear()
             ws_task = asyncio.create_task(
