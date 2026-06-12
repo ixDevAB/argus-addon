@@ -1,3 +1,4 @@
+import asyncio
 import html
 from datetime import UTC, datetime
 from pathlib import Path
@@ -66,7 +67,11 @@ def _page(body: str) -> str:
     )
 
 
-def build_app(token_path: Path, code_holder: CodeHolder) -> web.Application:
+def build_app(
+    token_path: Path,
+    code_holder: CodeHolder,
+    unpair_event: asyncio.Event | None = None,
+) -> web.Application:
     app = web.Application()
     app["token_path"] = token_path
     app["code_holder"] = code_holder
@@ -79,6 +84,8 @@ def build_app(token_path: Path, code_holder: CodeHolder) -> web.Application:
     async def unpair(_request: web.Request) -> web.Response:
         if token_path.exists():
             token_path.unlink()
+        if unpair_event is not None:
+            unpair_event.set()
         raise web.HTTPFound(location="/")
 
     app.router.add_get("/", index)

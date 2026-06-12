@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -86,7 +87,8 @@ async def main():
             log.warning("ha_client connect failed at startup", error=str(exc))
 
     code_holder = CodeHolder()
-    app = ingress.build_app(token_path, code_holder)
+    unpair_event = asyncio.Event()
+    app = ingress.build_app(token_path, code_holder, unpair_event)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", 8099)
@@ -94,20 +96,42 @@ async def main():
     log.info("ingress listening", host="0.0.0.0", port=8099)
 
     try:
-        if not _has_token(token_path):
-            log.info("no install token, entering pairing mode")
-            await pair_client.run_pairing(
-                token_path=token_path,
-                cloud_url=cloud_url,
-                code_holder=code_holder,
+        while True:
+            if not _has_token(token_path):
+                log.info("no install token, entering pairing mode")
+                code_holder.clear()
+                unpair_event.clear()
+                await pair_client.run_pairing(
+                    token_path=token_path,
+                    cloud_url=cloud_url,
+                    code_holder=code_holder,
+                )
+            if not _has_token(token_path):
+                continue
+            unpair_event.clear()
+            ws_task = asyncio.create_task(
+                ws_client.run(
+                    token_path=token_path,
+                    cloud_url=cloud_url,
+                    ha_client=ha_client,
+                    send_queue=send_queue,
+                    idempotency=idempotency,
+                )
             )
-        await ws_client.run(
-            token_path=token_path,
-            cloud_url=cloud_url,
-            ha_client=ha_client,
-            send_queue=send_queue,
-            idempotency=idempotency,
-        )
+            unpair_task = asyncio.create_task(unpair_event.wait())
+            await asyncio.wait({ws_task, unpair_task}, return_when=asyncio.FIRST_COMPLETED)
+            if ws_task.done():
+                unpair_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await unpair_task
+                exc = ws_task.exception()
+                log.error("ws_client.run exited unexpectedly, restarting", error=str(exc) if exc else None)
+                await asyncio.sleep(5)
+                continue
+            log.info("unpaired via ingress, returning to pairing mode")
+            ws_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await ws_task
     finally:
         await runner.cleanup()
         await ha_client.close()

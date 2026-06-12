@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest_asyncio
@@ -69,3 +70,17 @@ async def test_unpair_removes_token(client):
     resp = await test_client.post("/unpair", allow_redirects=False)
     assert resp.status == 302
     assert not token_path.exists()
+
+
+async def test_unpair_signals_event(tmp_path):
+    token_path = tmp_path / "token.txt"
+    token_path.write_text("present")
+    unpair_event = asyncio.Event()
+    app = build_app(token_path, CodeHolder(), unpair_event)
+    server = TestServer(app)
+    async with TestClient(server) as test_client:
+        assert not unpair_event.is_set()
+        resp = await test_client.post("/unpair", allow_redirects=False)
+        assert resp.status == 302
+    assert not token_path.exists()
+    assert unpair_event.is_set()
