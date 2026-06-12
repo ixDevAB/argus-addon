@@ -19,3 +19,6 @@ argus/.data/
 
 # log files (just watch tees here)
 argus/tmp/
+
+# generated code-review reports
+REVIEW_REPORT_*.md
