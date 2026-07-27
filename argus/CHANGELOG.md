@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Run under with-contenv so the supervisor token reaches the add-on, fixing Home Assistant auth and sensor sync.
+
 ## 0.1.2
 
 - Log the Home Assistant websocket url and the supervisor token length at startup to diagnose auth failures.
