@@ -47,5 +47,28 @@ qa:
 lock:
     cd argus && uv lock
 
+# Re-render argus/icon.png (256x256) and argus/logo.png (500x200) from their SVG sources.
+# Pulls librsvg and Inter through nix, so the wordmark renders the same on any machine.
+logo:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    inter="$(nix build --no-link --print-out-paths nixpkgs#inter)"
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    cat > "$work/fonts.conf" <<EOF
+    <?xml version="1.0"?>
+    <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+    <fontconfig>
+      <dir>$inter/share/fonts</dir>
+      <cachedir>$work/cache</cachedir>
+    </fontconfig>
+    EOF
+    export FONTCONFIG_FILE="$work/fonts.conf"
+    nix shell nixpkgs#librsvg --command bash -c '
+        rsvg-convert --width=256 --height=256 --output=argus/icon.png argus/icon.svg
+        rsvg-convert --width=500 --height=200 --output=argus/logo.png argus/logo.svg
+    '
+    echo "rendered argus/icon.png and argus/logo.png"
+
 clean-data:
     rm -rf argus/.data
