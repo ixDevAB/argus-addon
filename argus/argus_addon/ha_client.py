@@ -198,6 +198,22 @@ class HaClient:
             )
         return entities
 
+    async def fetch_states(self) -> list[dict[str, Any]]:
+        reply = await self._request({"type": "get_states"})
+        out: list[dict[str, Any]] = []
+        for srow in reply.get("result", []) or []:
+            entity_id = srow.get("entity_id", "")
+            domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
+            if domain not in {"binary_sensor", "switch"}:
+                continue
+            state = srow.get("state")
+            if not isinstance(state, str):
+                continue
+            raw_attrs = srow.get("attributes") or {}
+            attrs = {k: v for k, v in raw_attrs.items() if k in {"battery_level", "device_class", "friendly_name"}}
+            out.append({"entity_id": entity_id, "state": state, "attributes": attrs})
+        return out
+
     async def subscribe_events(self) -> None:
         self._subscribed_event_types.add("state_changed")
         await self._send_subscribe("state_changed")

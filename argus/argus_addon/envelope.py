@@ -36,6 +36,17 @@ class State(BaseModel):
     attributes: dict[str, Any] | None = None
 
 
+class StateSnapshotItem(BaseModel):
+    entity_id: str
+    state: str
+    attributes: dict[str, Any] | None = None
+
+
+class StatesSnapshot(BaseModel):
+    type: Literal["states"]
+    states: list[StateSnapshotItem]
+
+
 class Cmd(BaseModel):
     type: Literal["cmd"]
     id: str

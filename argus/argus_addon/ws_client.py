@@ -9,7 +9,7 @@ import structlog
 import websockets
 
 from argus_addon import __version__
-from argus_addon.envelope import Ack, Cmd, EntityList, EnvelopeAdapter, Hello
+from argus_addon.envelope import Ack, Cmd, EntityList, EnvelopeAdapter, Hello, StateSnapshotItem, StatesSnapshot
 from argus_addon.heartbeat import HEARTBEAT_INTERVAL, heartbeat
 from argus_addon.idempotency import Idempotency
 
@@ -122,6 +122,7 @@ async def _sync_entities(ws, ha_client, *, timeout: float, retry_interval: float
             entity_list = EntityList(type="entity_list", entities=entities)
             await ws.send(entity_list.model_dump_json())
             log.info("entity_list sent", count=len(entities))
+            await _send_states(ws, ha_client, timeout)
             return
         except asyncio.CancelledError:
             raise
@@ -132,6 +133,24 @@ async def _sync_entities(ws, ha_client, *, timeout: float, retry_interval: float
                 retry_in=retry_interval,
             )
             await asyncio.sleep(retry_interval)
+
+
+async def _send_states(ws, ha_client, timeout: float) -> None:
+    """Push a current-state snapshot so the cloud knows open/closed at connect time.
+
+    Display-only on the backend (never runs the alarm engine). Best-effort: a failure
+    is logged and skipped so it can never block the entity list or the heartbeat.
+    """
+    try:
+        rows = await asyncio.wait_for(ha_client.fetch_states(), timeout)
+        states = [StateSnapshotItem(**row) for row in rows]
+        if states:
+            await ws.send(StatesSnapshot(type="states", states=states).model_dump_json())
+            log.info("states snapshot sent", count=len(states))
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        log.warning("states snapshot failed", error=str(exc))
 
 
 async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency) -> None:
@@ -148,6 +167,7 @@ async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency) -> None
             entity_list = EntityList(type="entity_list", entities=entities)
             await ws.send(entity_list.model_dump_json())
             log.info("entity_list resent", count=len(entities))
+            await _send_states(ws, ha_client, 10.0)
     except Exception as exc:
         error = str(exc)
     idempotency.record(cmd.id)

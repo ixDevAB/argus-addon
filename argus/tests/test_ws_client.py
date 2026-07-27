@@ -11,12 +11,16 @@ class FakeHaClient:
         self.calls: list[dict] = []
         self._version = "2026.5.0"
         self.entities: list = []
+        self.states: list = []
 
     def version(self) -> str:
         return self._version
 
     async def fetch_entities(self):
         return list(self.entities)
+
+    async def fetch_states(self):
+        return list(self.states)
 
     async def call_service(self, domain, service, service_data):
         self.calls.append({"domain": domain, "service": service, "service_data": service_data})
@@ -182,6 +186,18 @@ async def test_entity_list_sent_on_connect(cloud_mock, tmp_path):
         env = await cloud_mock.wait_for(lambda e: e.get("type") == "entity_list", timeout=3.0)
         ids = [x["entity_id"] for x in env["entities"]]
         assert "binary_sensor.front_door" in ids
+    finally:
+        await _stop(task, stop)
+
+
+async def test_states_snapshot_sent_on_connect(cloud_mock, tmp_path):
+    ha = FakeHaClient()
+    ha.states = [{"entity_id": "binary_sensor.altandorr", "state": "on", "attributes": {"device_class": "door"}}]
+    task, ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path, ha_client=ha)
+    try:
+        env = await cloud_mock.wait_for(lambda e: e.get("type") == "states", timeout=3.0)
+        assert env["states"][0]["entity_id"] == "binary_sensor.altandorr"
+        assert env["states"][0]["state"] == "on"
     finally:
         await _stop(task, stop)
 
