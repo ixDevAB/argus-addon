@@ -1,4 +1,4 @@
-# Argus Add-on
+<img src="argus/logo.png" alt="Argus" width="250">
 
 A Home Assistant add-on that connects your home to the Argus cloud over a single secure outbound WebSocket. No port forwarding or inbound firewall rules are needed.
 
