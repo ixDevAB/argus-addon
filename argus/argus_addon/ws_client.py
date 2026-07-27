@@ -143,6 +143,11 @@ async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency) -> None
     try:
         if cmd.op == "call_service":
             await _dispatch_call_service(ha_client, cmd.args)
+        elif cmd.op == "resync":
+            entities = await ha_client.fetch_entities()
+            entity_list = EntityList(type="entity_list", entities=entities)
+            await ws.send(entity_list.model_dump_json())
+            log.info("entity_list resent", count=len(entities))
     except Exception as exc:
         error = str(exc)
     idempotency.record(cmd.id)

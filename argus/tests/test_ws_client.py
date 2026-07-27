@@ -186,6 +186,34 @@ async def test_entity_list_sent_on_connect(cloud_mock, tmp_path):
         await _stop(task, stop)
 
 
+async def test_resync_cmd_refetches_and_resends_entity_list(cloud_mock, tmp_path):
+    ha = FakeHaClient()
+    ha.entities = [
+        EntityRef(entity_id="binary_sensor.front_door", device_class="door", domain="binary_sensor"),
+    ]
+    task, ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path, ha_client=ha)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "entity_list", timeout=3.0)
+        # HA registry changed since connect: a new window sensor now exists.
+        ha.entities = [
+            EntityRef(entity_id="binary_sensor.balcony", device_class="window", domain="binary_sensor"),
+        ]
+        cmd = {"type": "cmd", "id": "01939999-0000-7000-8000-0000000000aa", "op": "resync", "args": {}}
+        await cloud_mock.send_to_client(cmd)
+        env = await cloud_mock.wait_for(
+            lambda e: (
+                e.get("type") == "entity_list"
+                and any(x["entity_id"] == "binary_sensor.balcony" for x in e.get("entities", []))
+            ),
+            timeout=3.0,
+        )
+        assert [x["entity_id"] for x in env["entities"]] == ["binary_sensor.balcony"]
+        ack = await cloud_mock.wait_for(lambda e: e.get("type") == "ack" and e.get("id") == cmd["id"], timeout=3.0)
+        assert ack.get("error") is None
+    finally:
+        await _stop(task, stop)
+
+
 async def test_slow_entity_fetch_does_not_block_link(cloud_mock, tmp_path):
     # A hanging HA entity fetch must NOT starve the heartbeat / read loop: the
     # cloud link must still come up and relay commands.

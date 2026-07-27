@@ -39,7 +39,7 @@ class State(BaseModel):
 class Cmd(BaseModel):
     type: Literal["cmd"]
     id: str
-    op: Literal["call_service", "test_trigger"]
+    op: Literal["call_service", "test_trigger", "resync"]
     args: dict[str, Any]
 
 
