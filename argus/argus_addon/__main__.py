@@ -71,6 +71,12 @@ async def main():
     cloud_url = os.environ.get("ARGUS_CLOUD_URL", DEFAULT_CLOUD_URL)
     supervisor_token = os.environ.get("SUPERVISOR_TOKEN", "")
     ha_ws_url = os.environ.get("ARGUS_HA_WS_URL", DEFAULT_HA_WS_URL)
+    log.info(
+        "config loaded",
+        ha_ws_url=ha_ws_url,
+        supervisor_token_present=bool(supervisor_token),
+        supervisor_token_len=len(supervisor_token),
+    )
 
     idempotency = Idempotency(idempotency_path)
     send_queue: asyncio.Queue = asyncio.Queue()

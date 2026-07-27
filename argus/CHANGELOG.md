@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Log the Home Assistant websocket url and the supervisor token length at startup to diagnose auth failures.
+
 ## 0.1.1
 
 - Reconnect to Home Assistant after the websocket drops instead of wedging on a closing transport.
