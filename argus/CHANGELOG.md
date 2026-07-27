@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Handle a resync command from the Argus cloud by re-fetching Home Assistant entities and re-sending the entity list, so renames and device-class changes made in Home Assistant can be pulled into Argus on demand.
+
 ## 0.1.3
 
 - Run under with-contenv so the supervisor token reaches the add-on, fixing Home Assistant auth and sensor sync.
