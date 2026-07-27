@@ -1,4 +1,48 @@
+import asyncio
+
+import pytest
+
 from argus_addon.ha_client import HaClient
+
+
+class _ClosingWs:
+    closed = False
+
+    def __init__(self):
+        self.close_calls = 0
+
+    async def send_json(self, payload):
+        raise RuntimeError("Cannot write to closing transport")
+
+    async def close(self):
+        self.close_calls += 1
+
+
+async def test_request_resets_ws_on_closing_transport():
+    client = HaClient(supervisor_token="test-token")
+    ws = _ClosingWs()
+    client._ws = ws
+    with pytest.raises(ConnectionResetError):
+        await client._request({"type": "get_states"})
+    assert client._ws is None
+    assert ws.close_calls == 1
+
+
+async def test_reconnects_after_server_drop(ha_mock):
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        first = await client.fetch_entities()
+        assert any(e.entity_id == "binary_sensor.kitchen_motion" for e in first)
+        await ha_mock.drop_connections()
+        for _ in range(50):
+            if client._ws is None or client._ws.closed:
+                break
+            await asyncio.sleep(0.02)
+        second = await client.fetch_entities()
+        assert any(e.entity_id == "binary_sensor.kitchen_motion" for e in second)
+    finally:
+        await client.close()
 
 
 async def test_connect_and_fetch_entities(ha_mock):

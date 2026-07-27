@@ -107,6 +107,14 @@ class HaMock:
             if not ws.closed:
                 await ws.send_json(payload)
 
+    async def drop_connections(self) -> None:
+        async with self._lock:
+            targets = list(self._sockets)
+            self._sockets.clear()
+        for ws in targets:
+            if not ws.closed:
+                await ws.close()
+
     async def close(self) -> None:
         async with self._lock:
             targets = list(self._sockets)

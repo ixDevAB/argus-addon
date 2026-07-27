@@ -153,7 +153,10 @@ async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency) -> None
 async def _dispatch_call_service(ha_client, args: dict[str, Any]) -> None:
     domain = args.get("domain")
     service = args.get("service")
-    service_data = args.get("service_data", {})
+    service_data = dict(args.get("service_data") or {})
+    entity_id = args.get("entity_id")
+    if entity_id and "entity_id" not in service_data:
+        service_data["entity_id"] = entity_id
     if not domain or not service:
         raise ValueError("call_service requires domain and service")
     await ha_client.call_service(domain, service, service_data)

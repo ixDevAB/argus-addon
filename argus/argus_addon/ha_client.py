@@ -10,6 +10,9 @@ from argus_addon.envelope import EntityRef
 
 log = structlog.get_logger(__name__)
 
+REQUEST_TIMEOUT = 10.0
+WS_HEARTBEAT = 25.0
+
 
 class HaClient:
     def __init__(
@@ -29,7 +32,9 @@ class HaClient:
         self._lock = asyncio.Lock()
         self._connect_lock = asyncio.Lock()
         self._ha_version: str | None = None
-        self._subscribed_event_types: set[str] = set()
+        # Seed the state_changed subscription so every (re)connect re-subscribes automatically,
+        # without a separate startup connect step. connect() replays this set after auth.
+        self._subscribed_event_types: set[str] = {"state_changed"} if on_event is not None else set()
         self._closing = False
 
     def _ws_live(self) -> bool:
@@ -40,7 +45,7 @@ class HaClient:
             self.ws_url = ws_url
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
-        self._ws = await self._session.ws_connect(self.ws_url)
+        self._ws = await self._session.ws_connect(self.ws_url, heartbeat=WS_HEARTBEAT)
         first = await self._ws.receive_json()
         if first.get("type") != "auth_required":
             raise RuntimeError(f"unexpected first frame: {first}")
@@ -71,6 +76,15 @@ class HaClient:
                 return
             log.info("ha_client reconnecting", url=self.ws_url)
             await self.connect()
+
+    async def _reset_ws(self) -> None:
+        ws = self._ws
+        self._ws = None
+        if self._reader_task is not None and not self._reader_task.done():
+            self._reader_task.cancel()
+        if ws is not None and not ws.closed:
+            with contextlib.suppress(Exception):
+                await ws.close()
 
     def version(self) -> str:
         return self._ha_version or "unknown"
@@ -113,8 +127,15 @@ class HaClient:
                 self._pending.pop(msg_id, None)
                 if not fut.done():
                     fut.cancel()
+                await self._reset_ws()
                 raise ConnectionResetError(f"ha_client send failed: {exc}") from exc
-        return await fut
+        try:
+            return await asyncio.wait_for(fut, timeout=REQUEST_TIMEOUT)
+        except TimeoutError as exc:
+            self._pending.pop(msg_id, None)
+            if not fut.done():
+                fut.cancel()
+            raise TimeoutError(f"ha_client request timed out after {REQUEST_TIMEOUT}s: {payload.get('type')}") from exc
 
     async def _send_subscribe(self, event_type: str) -> None:
         await self._request({"type": "subscribe_events", "event_type": event_type})

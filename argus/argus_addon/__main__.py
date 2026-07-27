@@ -79,12 +79,6 @@ async def main():
         ws_url=ha_ws_url,
         on_event=_build_state_forwarder(send_queue),
     )
-    if supervisor_token:
-        try:
-            await ha_client.connect()
-            await ha_client.subscribe_events()
-        except Exception as exc:
-            log.warning("ha_client connect failed at startup", error=str(exc))
 
     code_holder = CodeHolder()
     unpair_event = asyncio.Event()
