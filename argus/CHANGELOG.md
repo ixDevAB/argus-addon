@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Send a current-state snapshot on connect and resync so Argus knows which doors and windows are open right away, not only after the next change.
+
 ## 0.1.4
 
 - Handle a resync command from the Argus cloud by re-fetching Home Assistant entities and re-sending the entity list, so renames and device-class changes made in Home Assistant can be pulled into Argus on demand.
