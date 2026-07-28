@@ -38,7 +38,9 @@ Once paired, the add-on stores its token and reconnects automatically — no fur
 Local development uses Nix + direnv and `just`:
 
 ```sh
-cp .env.example .env   # set SUPERVISOR_TOKEN, ARGUS_HA_WS_URL, ARGUS_CLOUD_URL
-just dev               # run the add-on locally
-just test              # run the test suite
+cp .env.example .env.local   # set SUPERVISOR_TOKEN, ARGUS_HA_WS_URL, ARGUS_CLOUD_URL
+just start                   # run the add-on locally
+just watch                   # same, but restart on every .py change
+just test                    # run the test suite
+just logo                    # re-render argus/icon.png and argus/logo.png from the SVGs
 ```
