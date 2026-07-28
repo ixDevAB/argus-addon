@@ -66,6 +66,54 @@ async def test_connect_and_fetch_entities(ha_mock):
     assert ha_mock.auth_token == "test-token"
 
 
+async def test_fetch_includes_number_select_config_with_attrs_and_device(ha_mock):
+    ha_mock.devices = [{"id": "dev-cam1", "name": "Camera 1", "name_by_user": None, "area_id": None}]
+    ha_mock.entities = [
+        {
+            "entity_id": "number.camera1_pir_sensitivity",
+            "device_class": None,
+            "platform": "reolink",
+            "entity_category": "config",
+            "device_id": "dev-cam1",
+        },
+        {
+            "entity_id": "select.camera1_day_night",
+            "device_class": None,
+            "platform": "reolink",
+            "entity_category": "config",
+            "device_id": "dev-cam1",
+        },
+        {"entity_id": "sensor.temperature", "device_class": "temperature", "platform": "zha"},
+    ]
+    ha_mock.states = {
+        "number.camera1_pir_sensitivity": {
+            "state": "35",
+            "attributes": {"min": 0, "max": 50, "step": 1, "mode": "slider"},
+        },
+        "select.camera1_day_night": {
+            "state": "Auto",
+            "attributes": {"options": ["Auto", "Color", "Black&White"]},
+        },
+    }
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        by_id = {e.entity_id: e for e in await client.fetch_entities()}
+        assert "sensor.temperature" not in by_id  # non-config domain still excluded
+        num = by_id["number.camera1_pir_sensitivity"]
+        assert num.domain == "number"
+        assert num.value == "35"
+        assert num.attributes == {"min": 0, "max": 50, "step": 1, "mode": "slider"}
+        assert num.device_id == "dev-cam1"
+        assert num.device_name == "Camera 1"
+        sel = by_id["select.camera1_day_night"]
+        assert sel.domain == "select"
+        assert sel.value == "Auto"
+        assert sel.attributes == {"options": ["Auto", "Color", "Black&White"]}
+    finally:
+        await client.close()
+
+
 async def test_call_service(ha_mock):
     client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
     await client.connect()

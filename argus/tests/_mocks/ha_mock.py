@@ -29,6 +29,10 @@ DEFAULT_ENTITIES = [
 class HaMock:
     def __init__(self, entities: list[dict[str, Any]] | None = None):
         self.entities = entities if entities is not None else list(DEFAULT_ENTITIES)
+        # entity_id -> {"state": str, "attributes": {...}}; served by get_states.
+        self.states: dict[str, dict[str, Any]] = {}
+        # device_registry rows: [{"id","name","name_by_user","area_id"}, ...]
+        self.devices: list[dict[str, Any]] = []
         self.service_calls: list[dict[str, Any]] = []
         self.auth_token: str | None = None
         self._runner: web.AppRunner | None = None
@@ -75,6 +79,14 @@ class HaMock:
             kind = data.get("type")
             if kind == "config/entity_registry/list":
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": list(self.entities)})
+            elif kind == "config/device_registry/list":
+                await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": list(self.devices)})
+            elif kind == "get_states":
+                result = [
+                    {"entity_id": eid, "state": s.get("state"), "attributes": s.get("attributes", {})}
+                    for eid, s in self.states.items()
+                ]
+                await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": result})
             elif kind == "subscribe_events":
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": None})
             elif kind == "call_service":

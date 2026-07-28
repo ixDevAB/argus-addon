@@ -19,6 +19,11 @@ WS_HEARTBEAT = 25.0
 # surface/hide downstream; the add-on is a dumb pipe.
 SYNCED_DOMAINS = {"binary_sensor", "switch", "siren", "light"}
 
+# Writable config entities (camera sensitivity, day/night mode, ...). Synced in the
+# entity_list with their current value + bounds/options and device grouping, but NOT
+# streamed as live state events — Argus reads them on demand / at resync.
+CONFIG_DOMAINS = {"number", "select"}
+
 
 class HaClient:
     def __init__(
@@ -151,12 +156,14 @@ class HaClient:
         registry_rows = registry_reply.get("result", []) or []
 
         device_to_area: dict[str, str | None] = {}
+        device_to_name: dict[str, str | None] = {}
         try:
             device_reply = await self._request({"type": "config/device_registry/list"})
             for drow in device_reply.get("result", []) or []:
                 did = drow.get("id")
                 if did:
                     device_to_area[did] = drow.get("area_id")
+                    device_to_name[did] = drow.get("name_by_user") or drow.get("name")
         except Exception as exc:
             log.warning("device_registry fetch failed", error=str(exc))
 
@@ -185,14 +192,28 @@ class HaClient:
         for row in registry_rows:
             entity_id = row.get("entity_id", "")
             domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
-            if domain not in SYNCED_DOMAINS:
+            if domain not in SYNCED_DOMAINS and domain not in CONFIG_DOMAINS:
                 continue
             state = states_by_id.get(entity_id, {})
             attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
             device_class = row.get("device_class") or row.get("original_device_class") or attrs.get("device_class")
             friendly_name = row.get("name") or row.get("friendly_name") or attrs.get("friendly_name")
-            area_id = row.get("area_id") or device_to_area.get(row.get("device_id") or "")
+            device_id = row.get("device_id")
+            area_id = row.get("area_id") or device_to_area.get(device_id or "")
             area = area_name.get(area_id) if area_id else None
+            value: str | None = None
+            config_attributes: dict[str, Any] | None = None
+            if domain in CONFIG_DOMAINS:
+                raw_state = state.get("state") if isinstance(state, dict) else None
+                value = raw_state if isinstance(raw_state, str) else None
+                if domain == "number":
+                    config_attributes = {
+                        k: attrs[k] for k in ("min", "max", "step", "mode", "unit_of_measurement") if k in attrs
+                    }
+                elif domain == "select":
+                    options = attrs.get("options")
+                    if isinstance(options, list):
+                        config_attributes = {"options": options}
             entities.append(
                 EntityRef(
                     entity_id=entity_id,
@@ -201,6 +222,10 @@ class HaClient:
                     friendly_name=friendly_name,
                     area=area,
                     entity_category=row.get("entity_category"),
+                    device_id=device_id,
+                    device_name=device_to_name.get(device_id or ""),
+                    value=value,
+                    attributes=config_attributes or None,
                 )
             )
         return entities

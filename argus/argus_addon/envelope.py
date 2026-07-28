@@ -18,10 +18,16 @@ class Hello(BaseModel):
 class EntityRef(BaseModel):
     entity_id: str
     device_class: str | None
-    domain: Literal["binary_sensor", "switch", "siren", "light"]
+    domain: Literal["binary_sensor", "switch", "siren", "light", "number", "select"]
     friendly_name: str | None = None
     area: str | None = None
     entity_category: str | None = None
+    # Device grouping (so Argus can present a camera's entities together) and, for
+    # writable config entities (number/select), the current value + bounds/options.
+    device_id: str | None = None
+    device_name: str | None = None
+    value: str | None = None
+    attributes: dict[str, Any] | None = None
 
 
 class EntityList(BaseModel):

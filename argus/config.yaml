@@ -1,5 +1,5 @@
 name: "Argus"
-version: "0.1.7"
+version: "0.1.8"
 slug: "argus"
 description: "Argus home safety add-on. Connects to the Argus cloud over a secure outbound WebSocket."
 arch:
