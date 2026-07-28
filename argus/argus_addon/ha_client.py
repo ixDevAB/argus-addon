@@ -13,10 +13,11 @@ log = structlog.get_logger(__name__)
 REQUEST_TIMEOUT = 10.0
 WS_HEARTBEAT = 25.0
 
-# Domains Argus ingests: contact/motion triggers (binary_sensor), and siren outputs
-# (switch relays + HA's dedicated siren domain, e.g. camera sirens). Argus decides
-# which to surface/hide downstream; the add-on is a dumb pipe.
-SYNCED_DOMAINS = {"binary_sensor", "switch", "siren"}
+# Domains Argus ingests: contact/motion triggers (binary_sensor), and outputs —
+# siren (switch relays + HA's dedicated siren domain, e.g. camera sirens) and lights
+# (light fixtures + switch plugs used as deterrents). Argus decides which to
+# surface/hide downstream; the add-on is a dumb pipe.
+SYNCED_DOMAINS = {"binary_sensor", "switch", "siren", "light"}
 
 
 class HaClient:

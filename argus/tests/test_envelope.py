@@ -109,9 +109,19 @@ def test_invalid_entity_list_domain():
         EnvelopeAdapter.validate_python(
             {
                 "type": "entity_list",
-                "entities": [{"entity_id": "light.kitchen", "device_class": None, "domain": "light"}],
+                "entities": [{"entity_id": "climate.kitchen", "device_class": None, "domain": "climate"}],
             }
         )
+
+
+def test_accepts_light_entity_list_domain():
+    env = EnvelopeAdapter.validate_python(
+        {
+            "type": "entity_list",
+            "entities": [{"entity_id": "light.kitchen", "device_class": None, "domain": "light"}],
+        }
+    )
+    assert env.entities[0].domain == "light"
 
 
 def test_cmd_invalid_op():

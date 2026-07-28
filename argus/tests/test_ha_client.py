@@ -58,6 +58,9 @@ async def test_connect_and_fetch_entities(ha_mock):
         assert motion.domain == "binary_sensor"
         siren = next(e for e in entities if e.entity_id == "switch.siren_living")
         assert siren.domain == "switch"
+        assert "light.hall" in ids  # light outputs (deterrent) are synced too
+        light = next(e for e in entities if e.entity_id == "light.hall")
+        assert light.domain == "light"
     finally:
         await client.close()
     assert ha_mock.auth_token == "test-token"
@@ -109,10 +112,11 @@ async def test_entity_filter_includes_siren_domain_and_entity_category(ha_mock):
     try:
         entities = await client.fetch_entities()
         by_id = {e.entity_id: e for e in entities}
-        # siren domain is now ingested; light/sensor still excluded.
+        # siren + light domains are now ingested (outputs/deterrents); sensor still excluded.
         assert "siren.camera1_siren" in by_id
         assert by_id["siren.camera1_siren"].domain == "siren"
-        assert "light.kitchen" not in by_id
+        assert "light.kitchen" in by_id
+        assert by_id["light.kitchen"].domain == "light"
         assert "sensor.temperature" not in by_id
         # entity_category is forwarded so Argus can auto-hide config/diagnostic clutter.
         assert by_id["switch.camera1_ftp"].entity_category == "config"

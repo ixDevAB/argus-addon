@@ -17,6 +17,12 @@ DEFAULT_ENTITIES = [
         "platform": "zha",
         "friendly_name": "Siren Living",
     },
+    {
+        "entity_id": "light.hall",
+        "device_class": None,
+        "platform": "hue",
+        "friendly_name": "Hall Light",
+    },
 ]
 
 
