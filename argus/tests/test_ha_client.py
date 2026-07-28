@@ -95,10 +95,12 @@ async def test_version_populated(ha_mock):
         await client.close()
 
 
-async def test_entity_filter_excludes_non_binary_switch(ha_mock):
+async def test_entity_filter_includes_siren_domain_and_entity_category(ha_mock):
     ha_mock.entities = [
         {"entity_id": "binary_sensor.kitchen_motion", "device_class": "motion", "platform": "zha"},
         {"entity_id": "switch.siren_living", "device_class": None, "platform": "zha"},
+        {"entity_id": "siren.camera1_siren", "device_class": None, "platform": "reolink"},
+        {"entity_id": "switch.camera1_ftp", "device_class": None, "entity_category": "config", "platform": "reolink"},
         {"entity_id": "light.kitchen", "device_class": None, "platform": "zha"},
         {"entity_id": "sensor.temperature", "device_class": "temperature", "platform": "zha"},
     ]
@@ -106,10 +108,14 @@ async def test_entity_filter_excludes_non_binary_switch(ha_mock):
     await client.connect()
     try:
         entities = await client.fetch_entities()
-        domains = {e.domain for e in entities}
-        assert domains == {"binary_sensor", "switch"}
-        ids = {e.entity_id for e in entities}
-        assert "light.kitchen" not in ids
-        assert "sensor.temperature" not in ids
+        by_id = {e.entity_id: e for e in entities}
+        # siren domain is now ingested; light/sensor still excluded.
+        assert "siren.camera1_siren" in by_id
+        assert by_id["siren.camera1_siren"].domain == "siren"
+        assert "light.kitchen" not in by_id
+        assert "sensor.temperature" not in by_id
+        # entity_category is forwarded so Argus can auto-hide config/diagnostic clutter.
+        assert by_id["switch.camera1_ftp"].entity_category == "config"
+        assert by_id["binary_sensor.kitchen_motion"].entity_category is None
     finally:
         await client.close()

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6
+
+- Forward HA `siren.*` entities (e.g. camera sirens) so they can be mapped as sirens in Argus.
+- Include each entity's `entity_category` so Argus can auto-hide config/diagnostic clutter.
+
 ## 0.1.5
 
 - Send a current-state snapshot on connect and resync so Argus knows which doors and windows are open right away, not only after the next change.

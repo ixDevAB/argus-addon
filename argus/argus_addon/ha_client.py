@@ -13,6 +13,11 @@ log = structlog.get_logger(__name__)
 REQUEST_TIMEOUT = 10.0
 WS_HEARTBEAT = 25.0
 
+# Domains Argus ingests: contact/motion triggers (binary_sensor), and siren outputs
+# (switch relays + HA's dedicated siren domain, e.g. camera sirens). Argus decides
+# which to surface/hide downstream; the add-on is a dumb pipe.
+SYNCED_DOMAINS = {"binary_sensor", "switch", "siren"}
+
 
 class HaClient:
     def __init__(
@@ -179,7 +184,7 @@ class HaClient:
         for row in registry_rows:
             entity_id = row.get("entity_id", "")
             domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
-            if domain not in {"binary_sensor", "switch"}:
+            if domain not in SYNCED_DOMAINS:
                 continue
             state = states_by_id.get(entity_id, {})
             attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
@@ -194,6 +199,7 @@ class HaClient:
                     domain=domain,
                     friendly_name=friendly_name,
                     area=area,
+                    entity_category=row.get("entity_category"),
                 )
             )
         return entities
@@ -204,7 +210,7 @@ class HaClient:
         for srow in reply.get("result", []) or []:
             entity_id = srow.get("entity_id", "")
             domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
-            if domain not in {"binary_sensor", "switch"}:
+            if domain not in SYNCED_DOMAINS:
                 continue
             state = srow.get("state")
             if not isinstance(state, str):
