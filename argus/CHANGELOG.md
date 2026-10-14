@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.11
+
+- Sync battery-level sensors (`sensor.*` with device class `battery`, e.g. Reolink cameras' own battery entity) and forward their changes, so Argus can warn when a camera needs charging.
+
 ## 0.1.10
 
 - Skip entities that are disabled in Home Assistant's entity registry. They have no state and refuse streams and service calls, so Argus must never offer them (Reolink's disabled stream profiles showed up as cameras that could not play).

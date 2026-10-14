@@ -292,3 +292,40 @@ async def test_fetch_entities_skips_disabled_registry_entries(ha_mock):
         assert "camera.matsalen_balanserad" not in ids
     finally:
         await client.close()
+
+
+async def test_fetch_entities_syncs_battery_sensors_with_level_and_skips_other_sensors(ha_mock):
+    ha_mock.entities.append(
+        {
+            "entity_id": "sensor.camera1_batteri",
+            "device_class": "battery",
+            "platform": "reolink",
+            "device_id": "dev-cam1",
+        }
+    )
+    ha_mock.entities.append(
+        {
+            "entity_id": "sensor.camera1_temperature",
+            "device_class": "temperature",
+            "platform": "reolink",
+            "device_id": "dev-cam1",
+        }
+    )
+    ha_mock.states["sensor.camera1_batteri"] = {
+        "state": "37",
+        "attributes": {"device_class": "battery", "unit_of_measurement": "%"},
+    }
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        entities = {e.entity_id: e for e in await client.fetch_entities()}
+        assert "sensor.camera1_batteri" in entities
+        assert entities["sensor.camera1_batteri"].domain == "sensor"
+        assert entities["sensor.camera1_batteri"].value == "37"
+        assert entities["sensor.camera1_batteri"].device_id == "dev-cam1"
+        assert "sensor.camera1_temperature" not in entities
+        states = {s["entity_id"]: s for s in await client.fetch_states()}
+        assert states["sensor.camera1_batteri"]["state"] == "37"
+        assert states["sensor.camera1_batteri"]["attributes"]["device_class"] == "battery"
+    finally:
+        await client.close()

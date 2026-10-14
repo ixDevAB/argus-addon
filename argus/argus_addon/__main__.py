@@ -10,7 +10,7 @@ from aiohttp import web
 
 from argus_addon import ingress, pair_client, ws_client
 from argus_addon.envelope import State
-from argus_addon.ha_client import HaClient
+from argus_addon.ha_client import HaClient, is_battery_sensor
 from argus_addon.idempotency import Idempotency
 from argus_addon.pair_client import CodeHolder
 
@@ -39,7 +39,10 @@ def _build_state_forwarder(send_queue: asyncio.Queue):
         if not entity_id or state_value is None:
             return
         domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
-        if domain not in {"binary_sensor", "switch", "camera"}:
+        raw_attrs = new_state.get("attributes") or {}
+        if domain not in {"binary_sensor", "switch", "camera"} and not is_battery_sensor(
+            entity_id, raw_attrs.get("device_class")
+        ):
             return
         last_updated = new_state.get("last_updated") or new_state.get("last_changed")
         if isinstance(last_updated, str):
@@ -49,7 +52,6 @@ def _build_state_forwarder(send_queue: asyncio.Queue):
                 at = datetime.now(UTC)
         else:
             at = datetime.now(UTC)
-        raw_attrs = new_state.get("attributes") or {}
         forwarded_attrs = {
             k: v for k, v in raw_attrs.items() if k in {"battery_level", "device_class", "friendly_name"}
         }

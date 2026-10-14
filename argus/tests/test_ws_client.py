@@ -359,3 +359,44 @@ async def test_webrtc_offer_rejects_non_camera_entity(cloud_mock, tmp_path):
         assert not any("webrtc_offer" in c for c in ha.calls)
     finally:
         await _stop(task, stop)
+
+
+async def test_state_forwarder_passes_battery_sensors_and_drops_other_sensors():
+    from argus_addon.__main__ import _build_state_forwarder
+
+    queue: asyncio.Queue = asyncio.Queue()
+    forward = _build_state_forwarder(queue)
+    await forward(
+        {
+            "type": "event",
+            "event": {
+                "event_type": "state_changed",
+                "data": {
+                    "entity_id": "sensor.camera1_batteri",
+                    "new_state": {
+                        "entity_id": "sensor.camera1_batteri",
+                        "state": "12",
+                        "attributes": {"device_class": "battery"},
+                        "last_updated": "2026-10-14T12:00:00+00:00",
+                    },
+                },
+            },
+        }
+    )
+    await forward(
+        {
+            "type": "event",
+            "event": {
+                "event_type": "state_changed",
+                "data": {
+                    "entity_id": "sensor.camera1_temperature",
+                    "new_state": {"entity_id": "sensor.camera1_temperature", "state": "21", "attributes": {}},
+                },
+            },
+        }
+    )
+    env = queue.get_nowait()
+    assert env.entity_id == "sensor.camera1_batteri"
+    assert env.state == "12"
+    assert env.attributes == {"device_class": "battery"}
+    assert queue.empty()

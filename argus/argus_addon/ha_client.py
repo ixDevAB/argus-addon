@@ -20,6 +20,16 @@ WS_HEARTBEAT = 25.0
 # downstream; the add-on is a dumb pipe.
 SYNCED_DOMAINS = {"binary_sensor", "switch", "siren", "light", "camera"}
 
+# Battery levels for devices whose battery is its own entity (Reolink cameras report
+# sensor.<cam>_batteri). Only sensor.* rows with this device_class are synced; the sensor
+# domain is otherwise far too noisy to forward.
+BATTERY_DEVICE_CLASS = "battery"
+
+
+def is_battery_sensor(entity_id: str, device_class: str | None) -> bool:
+    return entity_id.startswith("sensor.") and device_class == BATTERY_DEVICE_CLASS
+
+
 # How long after HA's WebRTC answer we keep collecting trickled ICE candidates before
 # folding them into the answer. In the field the server-reflexive candidate arrives
 # within ~50 ms of the answer; the window is the upper bound, not the typical wait.
@@ -365,7 +375,7 @@ class HaClient:
         for row in registry_rows:
             entity_id = row.get("entity_id", "")
             domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
-            if domain not in SYNCED_DOMAINS and domain not in CONFIG_DOMAINS:
+            if domain not in SYNCED_DOMAINS and domain not in CONFIG_DOMAINS and domain != "sensor":
                 continue
             # A disabled registry entry has no state and refuses every service call and stream
             # (e.g. the two Reolink stream profiles HA leaves off by default), so it is not a
@@ -375,13 +385,15 @@ class HaClient:
             state = states_by_id.get(entity_id, {})
             attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
             device_class = row.get("device_class") or row.get("original_device_class") or attrs.get("device_class")
+            if domain == "sensor" and not is_battery_sensor(entity_id, device_class):
+                continue
             friendly_name = row.get("name") or row.get("friendly_name") or attrs.get("friendly_name")
             device_id = row.get("device_id")
             area_id = row.get("area_id") or device_to_area.get(device_id or "")
             area = area_name.get(area_id) if area_id else None
             value: str | None = None
             config_attributes: dict[str, Any] | None = None
-            if domain in CONFIG_DOMAINS:
+            if domain in CONFIG_DOMAINS or domain == "sensor":
                 raw_state = state.get("state") if isinstance(state, dict) else None
                 value = raw_state if isinstance(raw_state, str) else None
                 if domain == "number":
@@ -414,12 +426,12 @@ class HaClient:
         for srow in reply.get("result", []) or []:
             entity_id = srow.get("entity_id", "")
             domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
-            if domain not in SYNCED_DOMAINS:
+            raw_attrs = srow.get("attributes") or {}
+            if domain not in SYNCED_DOMAINS and not is_battery_sensor(entity_id, raw_attrs.get("device_class")):
                 continue
             state = srow.get("state")
             if not isinstance(state, str):
                 continue
-            raw_attrs = srow.get("attributes") or {}
             attrs = {k: v for k, v in raw_attrs.items() if k in {"battery_level", "device_class", "friendly_name"}}
             out.append({"entity_id": entity_id, "state": state, "attributes": attrs})
         return out
