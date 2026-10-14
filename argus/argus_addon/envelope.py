@@ -18,7 +18,7 @@ class Hello(BaseModel):
 class EntityRef(BaseModel):
     entity_id: str
     device_class: str | None
-    domain: Literal["binary_sensor", "switch", "siren", "light", "number", "select"]
+    domain: Literal["binary_sensor", "switch", "siren", "light", "number", "select", "camera"]
     friendly_name: str | None = None
     area: str | None = None
     entity_category: str | None = None
@@ -57,7 +57,7 @@ class StatesSnapshot(BaseModel):
 class Cmd(BaseModel):
     type: Literal["cmd"]
     id: str
-    op: Literal["call_service", "test_trigger", "resync"]
+    op: Literal["call_service", "test_trigger", "resync", "webrtc_offer", "webrtc_close"]
     args: dict[str, Any]
 
 
@@ -66,6 +66,8 @@ class Ack(BaseModel):
     id: str
     duplicate: bool | None = None
     error: str | None = None
+    # Reply payload for commands that answer with data (webrtc_offer -> session_id + sdp).
+    result: dict[str, Any] | None = None
 
 
 Envelope = Annotated[

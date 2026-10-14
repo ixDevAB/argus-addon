@@ -39,7 +39,7 @@ def _build_state_forwarder(send_queue: asyncio.Queue):
         if not entity_id or state_value is None:
             return
         domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
-        if domain not in {"binary_sensor", "switch"}:
+        if domain not in {"binary_sensor", "switch", "camera"}:
             return
         last_updated = new_state.get("last_updated") or new_state.get("last_changed")
         if isinstance(last_updated, str):

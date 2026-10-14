@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from argus_addon.ha_client import HaClient
+from argus_addon.ha_client import HaClient, merge_candidates
 
 
 class _ClosingWs:
@@ -169,5 +169,97 @@ async def test_entity_filter_includes_siren_domain_and_entity_category(ha_mock):
         # entity_category is forwarded so Argus can auto-hide config/diagnostic clutter.
         assert by_id["switch.camera1_ftp"].entity_category == "config"
         assert by_id["binary_sensor.kitchen_motion"].entity_category is None
+    finally:
+        await client.close()
+
+
+def test_merge_candidates_appends_per_section_with_end_of_candidates():
+    sdp = "v=0\r\ns=-\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=sendonly\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendonly\r\n"
+    merged = merge_candidates(
+        sdp,
+        [
+            {"candidate": "candidate:1 1 udp 1 192.168.1.10 1 typ host", "sdpMLineIndex": 0},
+            {"candidate": "candidate:2 1 udp 1 1.2.3.4 2 typ srflx", "sdpMLineIndex": 1},
+            {"candidate": "", "sdpMLineIndex": 0},
+        ],
+    )
+    lines = merged.split("\r\n")
+    assert lines[2:6] == [
+        "m=video 9 UDP/TLS/RTP/SAVPF 96",
+        "a=sendonly",
+        "a=candidate:1 1 udp 1 192.168.1.10 1 typ host",
+        "a=end-of-candidates",
+    ]
+    assert lines[6:10] == [
+        "m=audio 9 UDP/TLS/RTP/SAVPF 111",
+        "a=sendonly",
+        "a=candidate:2 1 udp 1 1.2.3.4 2 typ srflx",
+        "a=end-of-candidates",
+    ]
+    assert merged.endswith("\r\n")
+    assert merge_candidates(sdp, []) == sdp
+
+
+async def test_webrtc_offer_collects_answer_and_trickled_candidates(ha_mock):
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        result = await client.webrtc_offer(
+            "camera.living_room", "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n", candidate_window=0.2
+        )
+        assert result["session_id"] == "01MOCKSESSION"
+        assert ha_mock.webrtc_offers == [
+            {"entity_id": "camera.living_room", "offer": "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n"}
+        ]
+        assert "a=candidate:2 1 udp 1694498815 98.128.181.109 59174 typ srflx" in result["sdp"]
+        assert "a=end-of-candidates" in result["sdp"]
+        assert ha_mock.unsubscribed == []
+        assert await client.webrtc_close("01MOCKSESSION") is True
+        assert len(ha_mock.unsubscribed) == 1
+        assert await client.webrtc_close("01MOCKSESSION") is False
+    finally:
+        await client.close()
+
+
+async def test_webrtc_offer_error_event_raises_and_unsubscribes(ha_mock):
+    ha_mock.webrtc_error = {"code": "webrtc_offer_failed", "message": "camera unavailable"}
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        with pytest.raises(RuntimeError, match="webrtc_offer_failed: camera unavailable"):
+            await client.webrtc_offer("camera.living_room", "v=0\r\n", candidate_window=0.1)
+        assert len(ha_mock.unsubscribed) == 1
+    finally:
+        await client.close()
+
+
+async def test_webrtc_offer_times_out_without_answer(ha_mock):
+    ha_mock.webrtc_answer_delay = 5.0
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        with pytest.raises(TimeoutError):
+            await client.webrtc_offer("camera.living_room", "v=0\r\n", answer_timeout=0.3, candidate_window=0.1)
+        assert len(ha_mock.unsubscribed) == 1
+    finally:
+        await client.close()
+
+
+async def test_state_events_still_reach_on_event_while_a_webrtc_subscription_is_open(ha_mock):
+    seen: list[dict] = []
+
+    async def on_event(data):
+        seen.append(data)
+
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url, on_event=on_event)
+    await client.connect()
+    try:
+        await client.webrtc_offer("camera.living_room", "v=0\r\n", candidate_window=0.1)
+        await ha_mock.push_state_event("binary_sensor.kitchen_motion", "on")
+        for _ in range(50):
+            if seen:
+                break
+            await asyncio.sleep(0.02)
+        assert seen and seen[0]["event"]["data"]["entity_id"] == "binary_sensor.kitchen_motion"
     finally:
         await client.close()

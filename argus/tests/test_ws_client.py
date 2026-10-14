@@ -25,6 +25,15 @@ class FakeHaClient:
     async def call_service(self, domain, service, service_data):
         self.calls.append({"domain": domain, "service": service, "service_data": service_data})
 
+    async def webrtc_offer(self, entity_id, sdp):
+        self.calls.append({"webrtc_offer": entity_id, "sdp": sdp})
+        await asyncio.sleep(0.2)
+        return {"session_id": "HA-1", "sdp": "v=0\r\na=answer\r\n"}
+
+    async def webrtc_close(self, session_id):
+        self.calls.append({"webrtc_close": session_id})
+        return True
+
 
 async def _start_runner(
     cloud_mock,
@@ -286,5 +295,67 @@ async def test_entity_fetch_retries_until_success(cloud_mock, tmp_path):
         ids = [x["entity_id"] for x in env["entities"]]
         assert "binary_sensor.kitchen" in ids
         assert attempts["n"] >= 2
+    finally:
+        await _stop(task, stop)
+
+
+async def test_webrtc_offer_acks_with_result_without_blocking_other_commands(cloud_mock, tmp_path):
+    task, ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        offer = {
+            "type": "cmd",
+            "id": "01939999-0000-7000-8000-0000000000b1",
+            "op": "webrtc_offer",
+            "args": {"entity_id": "camera.living_room", "sdp": "v=0\r\n"},
+        }
+        siren = {
+            "type": "cmd",
+            "id": "01939999-0000-7000-8000-0000000000b2",
+            "op": "call_service",
+            "args": {"domain": "siren", "service": "turn_on", "entity_id": "siren.cam"},
+        }
+        await cloud_mock.send_to_client(offer)
+        await cloud_mock.send_to_client(siren)
+        siren_ack = await cloud_mock.wait_for(
+            lambda e: e.get("type") == "ack" and e.get("id") == siren["id"], timeout=3.0
+        )
+        offer_acked = any(e.get("type") == "ack" and e.get("id") == offer["id"] for e in cloud_mock.received)
+        assert siren_ack["error"] is None
+        assert offer_acked is False
+        ack = await cloud_mock.wait_for(lambda e: e.get("type") == "ack" and e.get("id") == offer["id"], timeout=3.0)
+        assert ack["result"] == {"session_id": "HA-1", "sdp": "v=0\r\na=answer\r\n"}
+        assert ack["error"] is None
+        close = {
+            "type": "cmd",
+            "id": "01939999-0000-7000-8000-0000000000b3",
+            "op": "webrtc_close",
+            "args": {"session_id": "HA-1"},
+        }
+        await cloud_mock.send_to_client(close)
+        close_ack = await cloud_mock.wait_for(
+            lambda e: e.get("type") == "ack" and e.get("id") == close["id"], timeout=3.0
+        )
+        assert close_ack["result"] == {"closed": True}
+        assert {"webrtc_close": "HA-1"} in ha.calls
+    finally:
+        await _stop(task, stop)
+
+
+async def test_webrtc_offer_rejects_non_camera_entity(cloud_mock, tmp_path):
+    task, ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        cmd = {
+            "type": "cmd",
+            "id": "01939999-0000-7000-8000-0000000000b4",
+            "op": "webrtc_offer",
+            "args": {"entity_id": "switch.siren", "sdp": "v=0\r\n"},
+        }
+        await cloud_mock.send_to_client(cmd)
+        ack = await cloud_mock.wait_for(lambda e: e.get("type") == "ack" and e.get("id") == cmd["id"], timeout=3.0)
+        assert "camera entity_id" in ack["error"]
+        assert ack["result"] is None
+        assert not any("webrtc_offer" in c for c in ha.calls)
     finally:
         await _stop(task, stop)

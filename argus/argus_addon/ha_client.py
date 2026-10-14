@@ -13,16 +13,62 @@ log = structlog.get_logger(__name__)
 REQUEST_TIMEOUT = 10.0
 WS_HEARTBEAT = 25.0
 
-# Domains Argus ingests: contact/motion triggers (binary_sensor), and outputs —
+# Domains Argus ingests: contact/motion triggers (binary_sensor), outputs —
 # siren (switch relays + HA's dedicated siren domain, e.g. camera sirens) and lights
-# (light fixtures + switch plugs used as deterrents). Argus decides which to
-# surface/hide downstream; the add-on is a dumb pipe.
-SYNCED_DOMAINS = {"binary_sensor", "switch", "siren", "light"}
+# (light fixtures + switch plugs used as deterrents) — and cameras (live-stream
+# sources; their state carries availability). Argus decides which to surface/hide
+# downstream; the add-on is a dumb pipe.
+SYNCED_DOMAINS = {"binary_sensor", "switch", "siren", "light", "camera"}
+
+# How long after HA's WebRTC answer we keep collecting trickled ICE candidates before
+# folding them into the answer. In the field the server-reflexive candidate arrives
+# within ~50 ms of the answer; the window is the upper bound, not the typical wait.
+WEBRTC_CANDIDATE_WINDOW = 1.5
+WEBRTC_ANSWER_TIMEOUT = 15.0
 
 # Writable config entities (camera sensitivity, day/night mode, ...). Synced in the
 # entity_list with their current value + bounds/options and device grouping, but NOT
 # streamed as live state events — Argus reads them on demand / at resync.
 CONFIG_DOMAINS = {"number", "select"}
+
+
+def merge_candidates(sdp: str, candidates: list[dict[str, Any]]) -> str:
+    """Fold trickled ICE candidates into an SDP answer, per media section, with end-of-candidates.
+
+    HA sends each candidate as {"candidate": "candidate:...", "sdpMLineIndex": n}. The answer SDP
+    is split on its `m=` lines and each candidate is appended to the section it names (section 0
+    when unspecified). Sections that received candidates also get `a=end-of-candidates` so the
+    viewer knows gathering is complete.
+    """
+    newline = "\r\n" if "\r\n" in sdp else "\n"
+    lines = [line for line in sdp.split(newline)]
+    while lines and lines[-1] == "":
+        lines.pop()
+    section_starts = [i for i, line in enumerate(lines) if line.startswith("m=")]
+    if not section_starts:
+        return sdp
+    by_section: dict[int, list[str]] = {}
+    for cand in candidates:
+        text = cand.get("candidate") if isinstance(cand, dict) else None
+        if not isinstance(text, str) or not text:
+            continue
+        line = text if text.startswith("a=") else f"a={text}"
+        index = cand.get("sdpMLineIndex")
+        section = index if isinstance(index, int) and 0 <= index < len(section_starts) else 0
+        by_section.setdefault(section, []).append(line)
+    if not by_section:
+        return sdp
+    out: list[str] = []
+    for section, start in enumerate(section_starts):
+        end = section_starts[section + 1] if section + 1 < len(section_starts) else len(lines)
+        if section == 0:
+            out.extend(lines[:start])
+        out.extend(lines[start:end])
+        extra = by_section.get(section)
+        if extra:
+            out.extend(extra)
+            out.append("a=end-of-candidates")
+    return newline.join(out) + newline
 
 
 class HaClient:
@@ -46,6 +92,12 @@ class HaClient:
         # Seed the state_changed subscription so every (re)connect re-subscribes automatically,
         # without a separate startup connect step. connect() replays this set after auth.
         self._subscribed_event_types: set[str] = {"state_changed"} if on_event is not None else set()
+        # Subscription id -> queue of event frames for that subscription (None = drain and drop).
+        # Used for camera/webrtc/offer, whose answer and candidates arrive as events.
+        self._subscriptions: dict[int, asyncio.Queue[dict[str, Any]] | None] = {}
+        # HA WebRTC session id -> the offer subscription id that owns it. Unsubscribing is how
+        # HA closes the session (there is no separate close command).
+        self._webrtc_sessions: dict[str, int] = {}
         self._closing = False
 
     def _ws_live(self) -> bool:
@@ -71,6 +123,9 @@ class HaClient:
             if not fut.done():
                 fut.set_exception(ConnectionResetError("ha_client reconnected"))
         self._pending.clear()
+        # A new HA connection has no subscriptions; any WebRTC sessions died with the old one.
+        self._subscriptions.clear()
+        self._webrtc_sessions.clear()
         if self._reader_task is not None and not self._reader_task.done():
             self._reader_task.cancel()
         self._reader_task = asyncio.create_task(self._reader())
@@ -107,11 +162,18 @@ class HaClient:
                 if msg.type != aiohttp.WSMsgType.TEXT:
                     continue
                 data = msg.json()
-                if data.get("type") == "event" and self._on_event is not None:
-                    try:
-                        await self._on_event(data)
-                    except Exception as exc:
-                        log.warning("ha_client on_event raised", error=str(exc))
+                if data.get("type") == "event":
+                    sub_id = data.get("id")
+                    if sub_id in self._subscriptions:
+                        queue = self._subscriptions[sub_id]
+                        if queue is not None:
+                            queue.put_nowait(data.get("event") or {})
+                        continue
+                    if self._on_event is not None:
+                        try:
+                            await self._on_event(data)
+                        except Exception as exc:
+                            log.warning("ha_client on_event raised", error=str(exc))
                     continue
                 msg_id = data.get("id")
                 if msg_id in self._pending:
@@ -150,6 +212,117 @@ class HaClient:
 
     async def _send_subscribe(self, event_type: str) -> None:
         await self._request({"type": "subscribe_events", "event_type": event_type})
+
+    async def _subscribe(self, payload: dict[str, Any]) -> tuple[int, asyncio.Queue[dict[str, Any]]]:
+        """Send a subscription-style command; returns its id and the queue its events land in.
+
+        The queue is registered before the frame goes out so an event can never race ahead of it.
+        """
+        await self._ensure_connected()
+        assert self._ws is not None
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        async with self._lock:
+            msg_id = self._next_id
+            self._next_id += 1
+            fut: asyncio.Future[dict[str, Any]] = asyncio.get_event_loop().create_future()
+            self._pending[msg_id] = fut
+            self._subscriptions[msg_id] = queue
+            try:
+                await self._ws.send_json({"id": msg_id, **payload})
+            except (ConnectionResetError, RuntimeError, aiohttp.ClientError) as exc:
+                self._pending.pop(msg_id, None)
+                self._subscriptions.pop(msg_id, None)
+                if not fut.done():
+                    fut.cancel()
+                await self._reset_ws()
+                raise ConnectionResetError(f"ha_client send failed: {exc}") from exc
+        try:
+            reply = await asyncio.wait_for(fut, timeout=REQUEST_TIMEOUT)
+        except TimeoutError as exc:
+            self._pending.pop(msg_id, None)
+            self._subscriptions.pop(msg_id, None)
+            raise TimeoutError(
+                f"ha_client subscribe timed out after {REQUEST_TIMEOUT}s: {payload.get('type')}"
+            ) from exc
+        if not reply.get("success", False):
+            self._subscriptions.pop(msg_id, None)
+            err = reply.get("error") or {}
+            raise RuntimeError(f"{err.get('code', 'ha_error')}: {err.get('message', 'subscription refused')}")
+        return msg_id, queue
+
+    async def _unsubscribe(self, sub_id: int) -> None:
+        self._subscriptions.pop(sub_id, None)
+        with contextlib.suppress(Exception):
+            await self._request({"type": "unsubscribe_events", "subscription": sub_id})
+
+    async def webrtc_offer(
+        self,
+        entity_id: str,
+        sdp: str,
+        *,
+        answer_timeout: float = WEBRTC_ANSWER_TIMEOUT,
+        candidate_window: float = WEBRTC_CANDIDATE_WINDOW,
+    ) -> dict[str, Any]:
+        """Negotiate a WebRTC session with a Home Assistant camera.
+
+        HA answers through the offer subscription: a `session` event, then `answer`, then trickled
+        `candidate` events (its server-reflexive address arrives shortly after the answer). The
+        cloud wants one round trip, so the candidates seen inside `candidate_window` are folded into
+        the answer SDP. The subscription stays open: unsubscribing is what closes HA's session, and
+        that happens in `webrtc_close`.
+        """
+        sub_id, queue = await self._subscribe({"type": "camera/webrtc/offer", "entity_id": entity_id, "offer": sdp})
+        session_id: str | None = None
+        answer: str | None = None
+        candidates: list[dict[str, Any]] = []
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + answer_timeout
+        try:
+            while answer is None:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise TimeoutError(f"no WebRTC answer from {entity_id} within {answer_timeout}s")
+                event = await asyncio.wait_for(queue.get(), timeout=remaining)
+                kind = event.get("type")
+                if kind == "session":
+                    session_id = event.get("session_id")
+                elif kind == "answer":
+                    answer = event.get("answer")
+                elif kind == "candidate":
+                    candidates.append(event.get("candidate") or {})
+                elif kind == "error":
+                    raise RuntimeError(f"{event.get('code', 'webrtc_error')}: {event.get('message', '')}")
+            window_end = loop.time() + candidate_window
+            while True:
+                remaining = window_end - loop.time()
+                if remaining <= 0:
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=remaining)
+                except TimeoutError:
+                    break
+                if event.get("type") == "candidate":
+                    candidates.append(event.get("candidate") or {})
+                elif event.get("type") == "error":
+                    raise RuntimeError(f"{event.get('code', 'webrtc_error')}: {event.get('message', '')}")
+        except BaseException:
+            await self._unsubscribe(sub_id)
+            raise
+        # Late candidates after the window are dropped (None queue): the answer already shipped.
+        self._subscriptions[sub_id] = None
+        if session_id:
+            self._webrtc_sessions[session_id] = sub_id
+        log.info("webrtc offer answered", entity_id=entity_id, session_id=session_id, candidates=len(candidates))
+        return {"session_id": session_id, "sdp": merge_candidates(answer or "", candidates)}
+
+    async def webrtc_close(self, session_id: str) -> bool:
+        """Close a WebRTC session by unsubscribing its offer subscription. False if unknown."""
+        sub_id = self._webrtc_sessions.pop(session_id, None)
+        if sub_id is None:
+            return False
+        await self._unsubscribe(sub_id)
+        log.info("webrtc session closed", session_id=session_id)
+        return True
 
     async def fetch_entities(self) -> list[EntityRef]:
         registry_reply = await self._request({"type": "config/entity_registry/list"})

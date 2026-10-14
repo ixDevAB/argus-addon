@@ -34,6 +34,21 @@ class HaMock:
         # device_registry rows: [{"id","name","name_by_user","area_id"}, ...]
         self.devices: list[dict[str, Any]] = []
         self.service_calls: list[dict[str, Any]] = []
+        # WebRTC: offers received, subscriptions unsubscribed, and the scripted reply.
+        self.webrtc_offers: list[dict[str, Any]] = []
+        self.unsubscribed: list[int] = []
+        self.webrtc_answer: str = (
+            "v=0\r\no=- 2 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=sendonly\r\n"
+        )
+        self.webrtc_candidates: list[dict[str, Any]] = [
+            {"candidate": "candidate:1 1 udp 2130706431 192.168.1.10 45645 typ host", "sdpMLineIndex": 0},
+            {
+                "candidate": "candidate:2 1 udp 1694498815 98.128.181.109 59174 typ srflx raddr 0.0.0.0 rport 59398",
+                "sdpMLineIndex": 0,
+            },
+        ]
+        self.webrtc_error: dict[str, Any] | None = None
+        self.webrtc_answer_delay: float = 0.05
         self.auth_token: str | None = None
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
@@ -89,6 +104,26 @@ class HaMock:
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": result})
             elif kind == "subscribe_events":
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": None})
+            elif kind == "unsubscribe_events":
+                self.unsubscribed.append(data.get("subscription"))
+                await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": None})
+            elif kind == "camera/webrtc/offer":
+                self.webrtc_offers.append({"entity_id": data.get("entity_id"), "offer": data.get("offer")})
+                await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": None})
+                await ws.send_json(
+                    {"id": msg_id, "type": "event", "event": {"type": "session", "session_id": "01MOCKSESSION"}}
+                )
+                if self.webrtc_error is not None:
+                    await ws.send_json({"id": msg_id, "type": "event", "event": {"type": "error", **self.webrtc_error}})
+                    continue
+                await asyncio.sleep(self.webrtc_answer_delay)
+                await ws.send_json(
+                    {"id": msg_id, "type": "event", "event": {"type": "answer", "answer": self.webrtc_answer}}
+                )
+                for cand in self.webrtc_candidates:
+                    await ws.send_json(
+                        {"id": msg_id, "type": "event", "event": {"type": "candidate", "candidate": cand}}
+                    )
             elif kind == "call_service":
                 self.service_calls.append(
                     {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.9
+
+- Forward HA `camera.*` entities (and their availability) so cameras can be mapped in Argus.
+- Handle `webrtc_offer` / `webrtc_close` commands: negotiate a WebRTC session with a camera through Home Assistant's own WebRTC API and fold the trickled ICE candidates into the answer, so the Argus app can stream live video without exposing Home Assistant.
+
 ## 0.1.6
 
 - Forward HA `siren.*` entities (e.g. camera sirens) so they can be mapped as sirens in Argus.
