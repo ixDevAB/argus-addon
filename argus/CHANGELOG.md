@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.10
+
+- Skip entities that are disabled in Home Assistant's entity registry. They have no state and refuse streams and service calls, so Argus must never offer them (Reolink's disabled stream profiles showed up as cameras that could not play).
+
 ## 0.1.9
 
 - Forward HA `camera.*` entities (and their availability) so cameras can be mapped in Argus.

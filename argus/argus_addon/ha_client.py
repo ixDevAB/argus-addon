@@ -367,6 +367,11 @@ class HaClient:
             domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
             if domain not in SYNCED_DOMAINS and domain not in CONFIG_DOMAINS:
                 continue
+            # A disabled registry entry has no state and refuses every service call and stream
+            # (e.g. the two Reolink stream profiles HA leaves off by default), so it is not a
+            # candidate for anything in Argus.
+            if row.get("disabled_by"):
+                continue
             state = states_by_id.get(entity_id, {})
             attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
             device_class = row.get("device_class") or row.get("original_device_class") or attrs.get("device_class")

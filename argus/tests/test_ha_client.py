@@ -263,3 +263,32 @@ async def test_state_events_still_reach_on_event_while_a_webrtc_subscription_is_
         assert seen and seen[0]["event"]["data"]["entity_id"] == "binary_sensor.kitchen_motion"
     finally:
         await client.close()
+
+
+async def test_fetch_entities_skips_disabled_registry_entries(ha_mock):
+    ha_mock.entities.append(
+        {
+            "entity_id": "camera.matsalen_balanserad",
+            "device_class": None,
+            "platform": "reolink",
+            "friendly_name": "Matsalen Balanserad",
+            "disabled_by": "integration",
+        }
+    )
+    ha_mock.entities.append(
+        {
+            "entity_id": "camera.matsalen_lag_klarhet",
+            "device_class": None,
+            "platform": "reolink",
+            "friendly_name": "Matsalen Låg klarhet",
+            "disabled_by": None,
+        }
+    )
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        ids = {e.entity_id for e in await client.fetch_entities()}
+        assert "camera.matsalen_lag_klarhet" in ids
+        assert "camera.matsalen_balanserad" not in ids
+    finally:
+        await client.close()
