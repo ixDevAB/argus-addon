@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.16
+
+- Send the devices behind the synced entities (name, manufacturer, model, firmware, hardware, area, hub) so Argus can show each physical unit, what it provides, and its firmware.
+
 ## 0.1.15
 
 - Push-to-talk through the add-on's own go2rtc. Home Assistant opens the camera without its return channel, so talk audio sent that way is dropped; the add-on now opens the hub's RTSP with the backchannel for the duration of a talk session. Enter the Reolink hub's address and login in the add-on options; they stay on this box. The add-on uses host networking so the talk session can reach it.

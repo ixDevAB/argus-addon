@@ -137,7 +137,7 @@ async def _sync_entities(ws, ha_client, *, timeout: float, retry_interval: float
     while True:
         try:
             entities = await asyncio.wait_for(ha_client.fetch_entities(), timeout)
-            entity_list = EntityList(type="entity_list", entities=entities)
+            entity_list = EntityList(type="entity_list", entities=entities, devices=getattr(ha_client, "devices", []))
             await ws.send(entity_list.model_dump_json())
             log.info("entity_list sent", count=len(entities))
             await _send_states(ws, ha_client, timeout)
@@ -189,7 +189,7 @@ async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency, *, talk
             await _dispatch_call_service(ha_client, cmd.args)
         elif cmd.op == "resync":
             entities = await ha_client.fetch_entities()
-            entity_list = EntityList(type="entity_list", entities=entities)
+            entity_list = EntityList(type="entity_list", entities=entities, devices=getattr(ha_client, "devices", []))
             await ws.send(entity_list.model_dump_json())
             log.info("entity_list resent", count=len(entities))
             await _send_states(ws, ha_client, 10.0)

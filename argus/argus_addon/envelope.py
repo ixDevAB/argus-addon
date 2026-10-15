@@ -35,9 +35,23 @@ class EntityRef(BaseModel):
     translation_key: str | None = None
 
 
+class DeviceRef(BaseModel):
+    """A physical unit from HA's device registry: what the Units tab shows."""
+
+    id: str
+    name: str | None = None
+    manufacturer: str | None = None
+    model: str | None = None
+    sw_version: str | None = None
+    hw_version: str | None = None
+    area: str | None = None
+    via_device_id: str | None = None
+
+
 class EntityList(BaseModel):
     type: Literal["entity_list"]
     entities: list[EntityRef]
+    devices: list[DeviceRef] = []
 
 
 class State(BaseModel):

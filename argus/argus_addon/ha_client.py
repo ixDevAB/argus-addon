@@ -6,7 +6,7 @@ from typing import Any
 import aiohttp
 import structlog
 
-from argus_addon.envelope import EntityRef
+from argus_addon.envelope import DeviceRef, EntityRef
 
 log = structlog.get_logger(__name__)
 
@@ -121,6 +121,8 @@ class HaClient:
         self.pending_resync = False
         # entity_id -> registry unique_id, kept for talk (a Reolink camera's hub + camera uid).
         self._unique_ids: dict[str, str] = {}
+        # The devices behind the last fetched entity list; sent alongside it.
+        self.devices: list[DeviceRef] = []
         self._connect_lock = asyncio.Lock()
         self._ha_version: str | None = None
         # Seed the state_changed subscription so every (re)connect re-subscribes automatically,
@@ -407,6 +409,7 @@ class HaClient:
 
         device_to_area: dict[str, str | None] = {}
         device_to_name: dict[str, str | None] = {}
+        device_rows: dict[str, dict[str, Any]] = {}
         try:
             device_reply = await self._request({"type": "config/device_registry/list"})
             for drow in device_reply.get("result", []) or []:
@@ -414,6 +417,7 @@ class HaClient:
                 if did:
                     device_to_area[did] = drow.get("area_id")
                     device_to_name[did] = drow.get("name_by_user") or drow.get("name")
+                    device_rows[did] = drow
         except Exception as exc:
             log.warning("device_registry fetch failed", error=str(exc))
 
@@ -495,6 +499,27 @@ class HaClient:
                     translation_key=translation_key,
                 )
             )
+        # The units behind those entities, plus the hubs they hang off, so the app can show a
+        # camera's model and firmware and which hub it belongs to.
+        wanted: set[str] = {e.device_id for e in entities if e.device_id}
+        for did in list(wanted):
+            via = (device_rows.get(did) or {}).get("via_device_id")
+            if via:
+                wanted.add(via)
+        self.devices = [
+            DeviceRef(
+                id=did,
+                name=device_to_name.get(did),
+                manufacturer=drow.get("manufacturer"),
+                model=drow.get("model"),
+                sw_version=drow.get("sw_version"),
+                hw_version=drow.get("hw_version"),
+                area=area_name.get(drow.get("area_id") or "") if drow.get("area_id") else None,
+                via_device_id=drow.get("via_device_id"),
+            )
+            for did, drow in device_rows.items()
+            if did in wanted
+        ]
         return entities
 
     async def fetch_states(self) -> list[dict[str, Any]]:

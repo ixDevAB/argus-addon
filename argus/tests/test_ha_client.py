@@ -66,6 +66,61 @@ async def test_connect_and_fetch_entities(ha_mock):
     assert ha_mock.auth_token == "test-token"
 
 
+async def test_fetch_collects_the_devices_behind_the_entities_and_their_hubs(ha_mock):
+    ha_mock.devices = [
+        {
+            "id": "dev-hub",
+            "name": "Living Room",
+            "manufacturer": "Reolink",
+            "model": "Reolink Home Hub",
+            "sw_version": "v3.3.0.601",
+            "hw_version": "BASE_WENNT6NA5",
+            "area_id": "vardagsrum",
+            "via_device_id": None,
+        },
+        {
+            "id": "dev-front",
+            "name": "Framsidan",
+            "manufacturer": "Reolink",
+            "model": "Argus 4 Pro",
+            "sw_version": "v3.0.0.4348",
+            "hw_version": None,
+            "area_id": None,
+            "via_device_id": "dev-hub",
+        },
+        {
+            "id": "dev-unrelated",
+            "name": "Printer",
+            "manufacturer": "HP",
+            "model": "X",
+            "sw_version": None,
+            "hw_version": None,
+            "area_id": None,
+            "via_device_id": None,
+        },
+    ]
+    ha_mock.entities = [
+        {
+            "entity_id": "camera.framsidan_lag_klarhet",
+            "device_class": None,
+            "platform": "reolink",
+            "device_id": "dev-front",
+        },
+    ]
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        await client.fetch_entities()
+        devices = {d.id: d for d in client.devices}
+        assert set(devices) == {"dev-front", "dev-hub"}
+        assert devices["dev-front"].model == "Argus 4 Pro"
+        assert devices["dev-front"].via_device_id == "dev-hub"
+        assert devices["dev-hub"].sw_version == "v3.3.0.601"
+        assert devices["dev-hub"].hw_version == "BASE_WENNT6NA5"
+    finally:
+        await client.close()
+
+
 async def test_fetch_forwards_platform_and_translation_key(ha_mock):
     ha_mock.devices = [{"id": "dev-front", "name": "Framsidan", "name_by_user": None, "area_id": None}]
     ha_mock.entities = [
