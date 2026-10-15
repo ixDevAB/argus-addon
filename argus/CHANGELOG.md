@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.14
+
+- Re-establish the Home Assistant link and the state subscription on its own after it drops (a Core restart). Until now the add-on stayed deaf to sensor changes until the cloud happened to relay a command.
+
 ## 0.1.13
 
 - Sync each camera's charging state (Reolink's battery state enum: discharging / charging / charge complete). The entity ships disabled in Home Assistant, so the add-on enables it in the entity registry and resyncs once Home Assistant has created it.

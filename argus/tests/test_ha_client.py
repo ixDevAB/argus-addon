@@ -369,6 +369,32 @@ async def test_state_events_still_reach_on_event_while_a_webrtc_subscription_is_
         await client.close()
 
 
+async def test_state_subscription_comes_back_by_itself_after_the_link_drops(ha_mock):
+    seen: list[dict] = []
+
+    async def on_event(data):
+        seen.append(data)
+
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url, on_event=on_event)
+    await client.connect()
+    try:
+        await ha_mock.drop_connections()
+        # No request is made here on purpose: the alarm path must not depend on one.
+        for _ in range(100):
+            if client._ws_live() and len(ha_mock._sockets) == 1:
+                break
+            await asyncio.sleep(0.05)
+        assert client._ws_live()
+        await ha_mock.push_state_event("binary_sensor.kitchen_motion", "on")
+        for _ in range(50):
+            if seen:
+                break
+            await asyncio.sleep(0.02)
+        assert seen and seen[0]["event"]["data"]["entity_id"] == "binary_sensor.kitchen_motion"
+    finally:
+        await client.close()
+
+
 async def test_fetch_entities_skips_disabled_registry_entries(ha_mock):
     ha_mock.entities.append(
         {

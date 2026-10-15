@@ -13,6 +13,10 @@ log = structlog.get_logger(__name__)
 REQUEST_TIMEOUT = 10.0
 WS_HEARTBEAT = 25.0
 
+# Backoff for re-establishing the HA link after it drops (Core restart).
+RECONNECT_INITIAL_S = 0.5
+RECONNECT_MAX_S = 30.0
+
 # Domains Argus ingests: contact/motion triggers (binary_sensor), outputs —
 # siren (switch relays + HA's dedicated siren domain, e.g. camera sirens) and lights
 # (light fixtures + switch plugs used as deterrents) — and cameras (live-stream
@@ -111,6 +115,7 @@ class HaClient:
         self._next_id = 1
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._reader_task: asyncio.Task[None] | None = None
+        self._reconnect_task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
         # Set when fetch_entities enabled registry entities that HA will materialise shortly.
         self.pending_resync = False
@@ -211,6 +216,26 @@ class HaClient:
             raise
         except Exception as exc:
             log.warning("ha_client reader error", error=str(exc))
+        # The link dropped (Core restart, supervisor hiccup). Nothing else re-establishes the
+        # state_changed subscription unless a command happens to be relayed, and the alarm cannot
+        # wait for that, so reconnect here until it sticks.
+        if not self._closing and self._reader_task is asyncio.current_task():
+            log.warning("ha_client link lost; reconnecting")
+            self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+
+    async def _reconnect_loop(self) -> None:
+        delay = RECONNECT_INITIAL_S
+        while not self._closing:
+            await asyncio.sleep(delay)
+            try:
+                await self._ensure_connected()
+                log.info("ha_client link restored")
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning("ha_client reconnect failed", error=str(exc), retry_in=delay)
+                delay = min(delay * 2, RECONNECT_MAX_S)
 
     async def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
         await self._ensure_connected()
@@ -502,6 +527,8 @@ class HaClient:
 
     async def close(self) -> None:
         self._closing = True
+        if self._reconnect_task is not None and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
         if self._reader_task is not None:
             self._reader_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
