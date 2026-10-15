@@ -30,6 +30,21 @@ def is_battery_sensor(entity_id: str, device_class: str | None) -> bool:
     return entity_id.startswith("sensor.") and device_class == BATTERY_DEVICE_CLASS
 
 
+# Charging state for those same devices (Reolink: sensor.<cam>_batteritillstand, an enum of
+# discharging / charging / chargecomplete). Identified by HA's translation_key in the registry
+# and, on state events that carry no translation_key, by the enum's options.
+BATTERY_STATE_TRANSLATION_KEY = "battery_state"
+CHARGING_OPTION = "charging"
+
+
+def is_battery_state_sensor(entity_id: str, translation_key: str | None, options: Any) -> bool:
+    if not entity_id.startswith("sensor."):
+        return False
+    if translation_key == BATTERY_STATE_TRANSLATION_KEY:
+        return True
+    return isinstance(options, list) and CHARGING_OPTION in options
+
+
 # How long after HA's WebRTC answer we keep collecting trickled ICE candidates before
 # folding them into the answer. In the field the server-reflexive candidate arrives
 # within ~50 ms of the answer; the window is the upper bound, not the typical wait.
@@ -97,6 +112,8 @@ class HaClient:
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._reader_task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
+        # Set when fetch_entities enabled registry entities that HA will materialise shortly.
+        self.pending_resync = False
         self._connect_lock = asyncio.Lock()
         self._ha_version: str | None = None
         # Seed the state_changed subscription so every (re)connect re-subscribes automatically,
@@ -338,6 +355,26 @@ class HaClient:
         registry_reply = await self._request({"type": "config/entity_registry/list"})
         registry_rows = registry_reply.get("result", []) or []
 
+        # Integrations ship some entities disabled (Reolink's charging state). Argus needs that
+        # one, so it is switched on here; HA creates the entity ~30 s later, after which a
+        # resync picks it up (pending_resync tells the caller to schedule one).
+        to_enable = [
+            row["entity_id"]
+            for row in registry_rows
+            if row.get("disabled_by") == "integration"
+            and row.get("translation_key") == BATTERY_STATE_TRANSLATION_KEY
+            and row.get("entity_id")
+        ]
+        for entity_id in to_enable:
+            try:
+                await self._request(
+                    {"type": "config/entity_registry/update", "entity_id": entity_id, "disabled_by": None}
+                )
+                self.pending_resync = True
+                log.info("enabled registry entity", entity_id=entity_id)
+            except Exception as exc:
+                log.warning("enable registry entity failed", entity_id=entity_id, error=str(exc))
+
         device_to_area: dict[str, str | None] = {}
         device_to_name: dict[str, str | None] = {}
         try:
@@ -385,7 +422,13 @@ class HaClient:
             state = states_by_id.get(entity_id, {})
             attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
             device_class = row.get("device_class") or row.get("original_device_class") or attrs.get("device_class")
-            if domain == "sensor" and not is_battery_sensor(entity_id, device_class):
+            translation_key = row.get("translation_key")
+            options = (row.get("capabilities") or {}).get("options") or attrs.get("options")
+            if (
+                domain == "sensor"
+                and not is_battery_sensor(entity_id, device_class)
+                and not is_battery_state_sensor(entity_id, translation_key, options)
+            ):
                 continue
             friendly_name = row.get("name") or row.get("friendly_name") or attrs.get("friendly_name")
             device_id = row.get("device_id")
@@ -417,7 +460,7 @@ class HaClient:
                     value=value,
                     attributes=config_attributes or None,
                     platform=row.get("platform"),
-                    translation_key=row.get("translation_key"),
+                    translation_key=translation_key,
                 )
             )
         return entities
@@ -429,7 +472,11 @@ class HaClient:
             entity_id = srow.get("entity_id", "")
             domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
             raw_attrs = srow.get("attributes") or {}
-            if domain not in SYNCED_DOMAINS and not is_battery_sensor(entity_id, raw_attrs.get("device_class")):
+            if (
+                domain not in SYNCED_DOMAINS
+                and not is_battery_sensor(entity_id, raw_attrs.get("device_class"))
+                and not is_battery_state_sensor(entity_id, None, raw_attrs.get("options"))
+            ):
                 continue
             state = srow.get("state")
             if not isinstance(state, str):

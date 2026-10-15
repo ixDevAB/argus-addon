@@ -34,6 +34,8 @@ class HaMock:
         # device_registry rows: [{"id","name","name_by_user","area_id"}, ...]
         self.devices: list[dict[str, Any]] = []
         self.service_calls: list[dict[str, Any]] = []
+        # config/entity_registry/update payloads, in order.
+        self.registry_updates: list[dict[str, Any]] = []
         # WebRTC: offers received, subscriptions unsubscribed, and the scripted reply.
         self.webrtc_offers: list[dict[str, Any]] = []
         self.unsubscribed: list[int] = []
@@ -94,6 +96,12 @@ class HaMock:
             kind = data.get("type")
             if kind == "config/entity_registry/list":
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": list(self.entities)})
+            elif kind == "config/entity_registry/update":
+                self.registry_updates.append({k: v for k, v in data.items() if k not in ("id", "type")})
+                for row in self.entities:
+                    if row.get("entity_id") == data.get("entity_id") and "disabled_by" in data:
+                        row["disabled_by"] = data["disabled_by"]
+                await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": {}})
             elif kind == "config/device_registry/list":
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": list(self.devices)})
             elif kind == "get_states":

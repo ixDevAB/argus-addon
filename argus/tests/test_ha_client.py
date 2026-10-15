@@ -107,6 +107,69 @@ async def test_fetch_forwards_platform_and_translation_key(ha_mock):
         await client.close()
 
 
+async def test_fetch_syncs_charging_state_and_enables_it_when_integration_disabled(ha_mock):
+    ha_mock.devices = [{"id": "dev-front", "name": "Framsidan", "name_by_user": None, "area_id": None}]
+    ha_mock.entities = [
+        {
+            "entity_id": "sensor.framsidan_batteri",
+            "device_class": "battery",
+            "platform": "reolink",
+            "device_id": "dev-front",
+        },
+        {
+            "entity_id": "sensor.framsidan_batteritillstand",
+            "device_class": None,
+            "original_device_class": "enum",
+            "platform": "reolink",
+            "translation_key": "battery_state",
+            "entity_category": "diagnostic",
+            "capabilities": {"options": ["discharging", "charging", "chargecomplete"]},
+            "device_id": "dev-front",
+            "disabled_by": "integration",
+        },
+        {
+            "entity_id": "sensor.framsidan_batteritemperatur",
+            "device_class": "temperature",
+            "platform": "reolink",
+            "translation_key": "battery_temperature",
+            "device_id": "dev-front",
+        },
+    ]
+    ha_mock.states = {
+        "sensor.framsidan_batteri": {"state": "64", "attributes": {"device_class": "battery"}},
+    }
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        first = {e.entity_id for e in await client.fetch_entities()}
+        # Disabled this round, but switched on in the registry and flagged for a resync.
+        assert "sensor.framsidan_batteritillstand" not in first
+        assert "sensor.framsidan_batteritemperatur" not in first
+        assert ha_mock.registry_updates == [{"entity_id": "sensor.framsidan_batteritillstand", "disabled_by": None}]
+        assert client.pending_resync is True
+
+        # HA has materialised it: the next fetch carries it with its current value, and nothing
+        # is re-enabled.
+        ha_mock.states["sensor.framsidan_batteritillstand"] = {
+            "state": "charging",
+            "attributes": {"device_class": "enum", "options": ["discharging", "charging", "chargecomplete"]},
+        }
+        client.pending_resync = False
+        second = {e.entity_id: e for e in await client.fetch_entities()}
+        state = second["sensor.framsidan_batteritillstand"]
+        assert state.translation_key == "battery_state"
+        assert state.value == "charging"
+        assert state.device_name == "Framsidan"
+        assert len(ha_mock.registry_updates) == 1
+        assert client.pending_resync is False
+
+        states = {row["entity_id"]: row for row in await client.fetch_states()}
+        assert states["sensor.framsidan_batteritillstand"]["state"] == "charging"
+        assert "sensor.framsidan_batteritemperatur" not in states
+    finally:
+        await client.close()
+
+
 async def test_fetch_includes_number_select_config_with_attrs_and_device(ha_mock):
     ha_mock.devices = [{"id": "dev-cam1", "name": "Camera 1", "name_by_user": None, "area_id": None}]
     ha_mock.entities = [

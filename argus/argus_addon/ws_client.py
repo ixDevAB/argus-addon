@@ -22,6 +22,9 @@ MAX_BACKOFF = 30.0
 # Commands that block on Home Assistant for seconds and therefore run as background tasks.
 SLOW_OPS = {"webrtc_offer", "webrtc_close"}
 
+# HA enables a registry entity on its next integration reload, about 30 s after the update.
+RESYNC_AFTER_ENABLE_S = 45.0
+
 
 async def run(
     token_path: Path,
@@ -137,6 +140,12 @@ async def _sync_entities(ws, ha_client, *, timeout: float, retry_interval: float
             await ws.send(entity_list.model_dump_json())
             log.info("entity_list sent", count=len(entities))
             await _send_states(ws, ha_client, timeout)
+            if ha_client.pending_resync:
+                # fetch_entities just enabled registry entities; HA materialises them shortly.
+                ha_client.pending_resync = False
+                log.info("resync scheduled for newly enabled entities", delay=RESYNC_AFTER_ENABLE_S)
+                await asyncio.sleep(RESYNC_AFTER_ENABLE_S)
+                continue
             return
         except asyncio.CancelledError:
             raise

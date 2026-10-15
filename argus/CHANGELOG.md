@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.13
+
+- Sync each camera's charging state (Reolink's battery state enum: discharging / charging / charge complete). The entity ships disabled in Home Assistant, so the add-on enables it in the entity registry and resyncs once Home Assistant has created it.
+
 ## 0.1.12
 
 - Include each entity's `platform` and `translation_key` from the entity registry, so Argus can tell a camera's person / vehicle / animal detections apart from its generic motion sensor (they share device class `motion` and have localized entity ids).
