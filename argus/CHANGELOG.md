@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.12
+
+- Include each entity's `platform` and `translation_key` from the entity registry, so Argus can tell a camera's person / vehicle / animal detections apart from its generic motion sensor (they share device class `motion` and have localized entity ids).
+
 ## 0.1.11
 
 - Sync battery-level sensors (`sensor.*` with device class `battery`, e.g. Reolink cameras' own battery entity) and forward their changes, so Argus can warn when a camera needs charging.

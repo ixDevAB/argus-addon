@@ -66,6 +66,47 @@ async def test_connect_and_fetch_entities(ha_mock):
     assert ha_mock.auth_token == "test-token"
 
 
+async def test_fetch_forwards_platform_and_translation_key(ha_mock):
+    ha_mock.devices = [{"id": "dev-front", "name": "Framsidan", "name_by_user": None, "area_id": None}]
+    ha_mock.entities = [
+        {
+            "entity_id": "binary_sensor.framsidan_person",
+            "device_class": None,
+            "original_device_class": None,
+            "platform": "reolink",
+            "translation_key": "person",
+            "device_id": "dev-front",
+        },
+        {
+            "entity_id": "binary_sensor.framsidan_rorelse",
+            "device_class": None,
+            "original_device_class": "motion",
+            "platform": "reolink",
+            "translation_key": None,
+            "device_id": "dev-front",
+        },
+        {"entity_id": "binary_sensor.hall_pir", "device_class": "motion", "platform": "zha"},
+    ]
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        entities = {e.entity_id: e for e in await client.fetch_entities()}
+        person = entities["binary_sensor.framsidan_person"]
+        assert person.platform == "reolink"
+        assert person.translation_key == "person"
+        assert person.device_class is None
+        assert person.device_name == "Framsidan"
+        motion = entities["binary_sensor.framsidan_rorelse"]
+        assert motion.platform == "reolink"
+        assert motion.translation_key is None
+        assert motion.device_class == "motion"
+        pir = entities["binary_sensor.hall_pir"]
+        assert pir.platform == "zha"
+        assert pir.translation_key is None
+    finally:
+        await client.close()
+
+
 async def test_fetch_includes_number_select_config_with_attrs_and_device(ha_mock):
     ha_mock.devices = [{"id": "dev-cam1", "name": "Camera 1", "name_by_user": None, "area_id": None}]
     ha_mock.entities = [

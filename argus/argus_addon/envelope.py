@@ -28,6 +28,11 @@ class EntityRef(BaseModel):
     device_name: str | None = None
     value: str | None = None
     attributes: dict[str, Any] | None = None
+    # Which integration owns the entity and HA's language-neutral key for what it measures.
+    # Camera AI classes (Reolink person/vehicle/animal) share device_class `motion` and have
+    # localized entity_ids, so the cloud tells them apart by translation_key.
+    platform: str | None = None
+    translation_key: str | None = None
 
 
 class EntityList(BaseModel):

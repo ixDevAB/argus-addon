@@ -416,6 +416,8 @@ class HaClient:
                     device_name=device_to_name.get(device_id or ""),
                     value=value,
                     attributes=config_attributes or None,
+                    platform=row.get("platform"),
+                    translation_key=row.get("translation_key"),
                 )
             )
         return entities
