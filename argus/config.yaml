@@ -1,5 +1,5 @@
 name: "Argus"
-version: "0.1.14"
+version: "0.1.15"
 slug: "argus"
 description: "Argus home safety add-on. Connects to the Argus cloud over a secure outbound WebSocket."
 arch:
@@ -13,5 +13,16 @@ panel_icon: "mdi:shield-home"
 panel_title: "Argus"
 map:
   - "data:rw"
-options: {}
-schema: {}
+# Talk audio is a WebRTC session straight to this add-on's go2rtc, so it needs real host ports
+# for ICE rather than the add-on network.
+host_network: true
+options:
+  reolink_host: ""
+  reolink_username: ""
+  reolink_password: ""
+  reolink_use_https: false
+schema:
+  reolink_host: "str?"
+  reolink_username: "str?"
+  reolink_password: "password?"
+  reolink_use_https: "bool?"

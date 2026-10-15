@@ -13,6 +13,7 @@ from argus_addon.envelope import State
 from argus_addon.ha_client import HaClient, is_battery_sensor, is_battery_state_sensor
 from argus_addon.idempotency import Idempotency
 from argus_addon.pair_client import CodeHolder
+from argus_addon.talk import Go2rtc, TalkConfig, TalkService
 
 log = structlog.get_logger(__name__)
 
@@ -21,6 +22,8 @@ DEFAULT_TOKEN_PATH = Path("/data/token.txt")
 DEFAULT_IDEMPOTENCY_PATH = Path("/data/idempotency.db")
 DEFAULT_CLOUD_URL = "wss://ws.argus.ixdev.se/ws/addon"
 DEFAULT_HA_WS_URL = "ws://supervisor/core/websocket"
+DEFAULT_OPTIONS_PATH = Path("/data/options.json")
+DEFAULT_GO2RTC_CONFIG_PATH = Path("/data/go2rtc.yaml")
 
 
 def _has_token(token_path: Path) -> bool:
@@ -90,6 +93,16 @@ async def main():
         on_event=_build_state_forwarder(send_queue),
     )
 
+    talk_config = TalkConfig.from_options(Path(os.environ.get("ARGUS_OPTIONS_PATH", str(DEFAULT_OPTIONS_PATH))))
+    talk: TalkService | None = None
+    if talk_config.configured:
+        go2rtc = Go2rtc(Path(os.environ.get("ARGUS_GO2RTC_CONFIG_PATH", str(DEFAULT_GO2RTC_CONFIG_PATH))))
+        if await go2rtc.start():
+            talk = TalkService(talk_config, go2rtc)
+            log.info("talk enabled", hub=talk_config.host)
+    else:
+        log.info("talk disabled: no Reolink hub login in the add-on options")
+
     code_holder = CodeHolder()
     unpair_event = asyncio.Event()
     app = ingress.build_app(token_path, code_holder, unpair_event)
@@ -122,6 +135,7 @@ async def main():
                     ha_client=ha_client,
                     send_queue=send_queue,
                     idempotency=idempotency,
+                    talk=talk,
                 )
             )
             unpair_task = asyncio.create_task(unpair_event.wait())

@@ -62,7 +62,7 @@ class StatesSnapshot(BaseModel):
 class Cmd(BaseModel):
     type: Literal["cmd"]
     id: str
-    op: Literal["call_service", "test_trigger", "resync", "webrtc_offer", "webrtc_close"]
+    op: Literal["call_service", "test_trigger", "resync", "webrtc_offer", "webrtc_close", "talk_offer", "talk_close"]
     args: dict[str, Any]
 
 

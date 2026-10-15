@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.15
+
+- Push-to-talk through the add-on's own go2rtc. Home Assistant opens the camera without its return channel, so talk audio sent that way is dropped; the add-on now opens the hub's RTSP with the backchannel for the duration of a talk session. Enter the Reolink hub's address and login in the add-on options; they stay on this box. The add-on uses host networking so the talk session can reach it.
+
 ## 0.1.14
 
 - Re-establish the Home Assistant link and the state subscription on its own after it drops (a Core restart). Until now the add-on stayed deaf to sensor changes until the cloud happened to relay a command.

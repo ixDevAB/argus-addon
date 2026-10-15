@@ -20,7 +20,7 @@ INITIAL_BACKOFF = 1.0
 MAX_BACKOFF = 30.0
 
 # Commands that block on Home Assistant for seconds and therefore run as background tasks.
-SLOW_OPS = {"webrtc_offer", "webrtc_close"}
+SLOW_OPS = {"webrtc_offer", "webrtc_close", "talk_offer", "talk_close"}
 
 # HA enables a registry entity on its next integration reload, about 30 s after the update.
 RESYNC_AFTER_ENABLE_S = 45.0
@@ -40,6 +40,7 @@ async def run(
     entity_fetch_timeout: float = 10.0,
     entity_retry_interval: float = 5.0,
     stop_event: asyncio.Event | None = None,
+    talk=None,
 ):
     attempt = 0
     while True:
@@ -94,11 +95,11 @@ async def run(
                         if env.op in SLOW_OPS:
                             # A WebRTC negotiation waits seconds for a camera to wake. It must never
                             # sit in front of a siren command, so it runs off the receive loop.
-                            task = asyncio.create_task(_handle_cmd(ws, env, ha_client, idempotency))
+                            task = asyncio.create_task(_handle_cmd(ws, env, ha_client, idempotency, talk=talk))
                             background.add(task)
                             task.add_done_callback(background.discard)
                         else:
-                            await _handle_cmd(ws, env, ha_client, idempotency)
+                            await _handle_cmd(ws, env, ha_client, idempotency, talk=talk)
                 finally:
                     hb_task.cancel()
                     send_task.cancel()
@@ -176,7 +177,7 @@ async def _send_states(ws, ha_client, timeout: float) -> None:
         log.warning("states snapshot failed", error=str(exc))
 
 
-async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency) -> None:
+async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency, *, talk=None) -> None:
     if idempotency.seen(cmd.id):
         ack = Ack(type="ack", id=cmd.id, duplicate=True)
         await ws.send(ack.model_dump_json())
@@ -196,6 +197,10 @@ async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency) -> None
             result = await _dispatch_webrtc_offer(ha_client, cmd.args)
         elif cmd.op == "webrtc_close":
             result = await _dispatch_webrtc_close(ha_client, cmd.args)
+        elif cmd.op == "talk_offer":
+            result = await _dispatch_talk_offer(ha_client, talk, cmd.args)
+        elif cmd.op == "talk_close":
+            result = await _dispatch_talk_close(talk, cmd.args)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -214,6 +219,30 @@ async def _dispatch_webrtc_offer(ha_client, args: dict[str, Any]) -> dict[str, A
     if not isinstance(sdp, str) or not sdp:
         raise ValueError("webrtc_offer requires sdp")
     return await ha_client.webrtc_offer(entity_id, sdp)
+
+
+async def _dispatch_talk_offer(ha_client, talk, args: dict[str, Any]) -> dict[str, Any]:
+    if talk is None:
+        raise RuntimeError("talk is not available on this add-on")
+    entity_id = args.get("entity_id")
+    sdp = args.get("sdp")
+    session_id = args.get("session_id")
+    if not isinstance(entity_id, str) or not entity_id:
+        raise ValueError("talk_offer requires a camera entity_id")
+    if not isinstance(sdp, str) or not sdp:
+        raise ValueError("talk_offer requires sdp")
+    if not isinstance(session_id, str) or not session_id:
+        raise ValueError("talk_offer requires session_id")
+    return await talk.offer(entity_id, ha_client.unique_id_of(entity_id), sdp, session_id)
+
+
+async def _dispatch_talk_close(talk, args: dict[str, Any]) -> dict[str, Any]:
+    if talk is None:
+        raise RuntimeError("talk is not available on this add-on")
+    session_id = args.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        raise ValueError("talk_close requires session_id")
+    return {"closed": await talk.close(session_id)}
 
 
 async def _dispatch_webrtc_close(ha_client, args: dict[str, Any]) -> dict[str, Any]:

@@ -119,6 +119,8 @@ class HaClient:
         self._lock = asyncio.Lock()
         # Set when fetch_entities enabled registry entities that HA will materialise shortly.
         self.pending_resync = False
+        # entity_id -> registry unique_id, kept for talk (a Reolink camera's hub + camera uid).
+        self._unique_ids: dict[str, str] = {}
         self._connect_lock = asyncio.Lock()
         self._ha_version: str | None = None
         # Seed the state_changed subscription so every (re)connect re-subscribes automatically,
@@ -186,6 +188,9 @@ class HaClient:
 
     def version(self) -> str:
         return self._ha_version or "unknown"
+
+    def unique_id_of(self, entity_id: str) -> str | None:
+        return self._unique_ids.get(entity_id)
 
     async def _reader(self) -> None:
         assert self._ws is not None
@@ -436,6 +441,8 @@ class HaClient:
         entities: list[EntityRef] = []
         for row in registry_rows:
             entity_id = row.get("entity_id", "")
+            if entity_id and isinstance(row.get("unique_id"), str):
+                self._unique_ids[entity_id] = row["unique_id"]
             domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
             if domain not in SYNCED_DOMAINS and domain not in CONFIG_DOMAINS and domain != "sensor":
                 continue
