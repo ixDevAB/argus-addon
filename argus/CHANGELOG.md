@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.0
+
+- Same code as 0.1.20 under the shared version line: the add-on is always 0.X.0 and the backend 0.X.Y, X moving with every add-on release. Backend 0.21.y speaks this add-on.
+
 ## 0.1.20
 
 - Unpair when the cloud says so: an `unpair` command, or a 401 on reconnect after the owner replaced the credential in the app, drops the install token and shows a fresh pairing code instead of retrying the dead token forever.
