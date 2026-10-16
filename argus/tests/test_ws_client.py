@@ -381,6 +381,33 @@ async def test_webrtc_offer_rejects_non_camera_entity(cloud_mock, tmp_path):
         await _stop(task, stop)
 
 
+async def test_state_forwarder_passes_number_and_select_settings():
+    from argus_addon.__main__ import _build_state_forwarder
+
+    queue: asyncio.Queue = asyncio.Queue()
+    forward = _build_state_forwarder(queue)
+    for entity_id, state in (
+        ("number.living_room_pir_kanslighet_3", "90"),
+        ("select.living_room_dag_natt_lage_3", "auto"),
+    ):
+        await forward(
+            {
+                "type": "event",
+                "event": {
+                    "event_type": "state_changed",
+                    "data": {
+                        "entity_id": entity_id,
+                        "new_state": {"entity_id": entity_id, "state": state, "attributes": {}},
+                    },
+                },
+            }
+        )
+    assert queue.qsize() == 2
+    first = queue.get_nowait()
+    assert first.entity_id == "number.living_room_pir_kanslighet_3"
+    assert first.state == "90"
+
+
 async def test_state_forwarder_passes_battery_sensors_and_drops_other_sensors():
     from argus_addon.__main__ import _build_state_forwarder
 

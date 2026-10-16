@@ -43,8 +43,10 @@ def _build_state_forwarder(send_queue: asyncio.Queue):
             return
         domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
         raw_attrs = new_state.get("attributes") or {}
+        # number and select carry camera settings (PIR sensitivity, day/night mode); the cloud
+        # mirrors them so the app shows what the camera actually holds.
         if (
-            domain not in {"binary_sensor", "switch", "camera"}
+            domain not in {"binary_sensor", "switch", "camera", "number", "select"}
             and not is_battery_sensor(entity_id, raw_attrs.get("device_class"))
             and not is_battery_state_sensor(entity_id, None, raw_attrs.get("options"))
         ):

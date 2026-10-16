@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.18
+
+- Forward number and select state changes (PIR sensitivity, AI sensitivities, day/night mode) so a setting changed in the app or in the Reolink app shows its real value in Argus.
+
 ## 0.1.17
 
 - Resend the state snapshot whenever the link to Home Assistant Core comes back. A Core restart marks entities unavailable and restores them while the add-on is reconnecting, and those transitions never arrived as events, so a sensor that had not moved since stayed silent in Argus until it did.
