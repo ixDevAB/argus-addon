@@ -92,6 +92,40 @@ async def test_handshake_sends_hello(cloud_mock, tmp_path):
         await _stop(task, stop)
 
 
+async def test_unpair_cmd_acks_drops_the_token_and_returns(cloud_mock, tmp_path):
+    task, _ha, _idem, _q, stop, token_path = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        cmd = {"type": "cmd", "id": "01939999-0000-7000-8000-00000000aa01", "op": "unpair", "args": {}}
+        await cloud_mock.send_to_client(cmd)
+        await cloud_mock.wait_for(lambda e: e.get("type") == "ack" and e.get("id") == cmd["id"], timeout=3.0)
+        await asyncio.wait_for(task, timeout=3.0)
+        assert not token_path.exists()
+    finally:
+        await _stop(task, stop)
+
+
+async def test_rejected_token_drops_the_token_and_returns(cloud_mock, tmp_path):
+    cloud_mock.reject_status = 401
+    task, _ha, _idem, _q, stop, token_path = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await asyncio.wait_for(task, timeout=3.0)
+        assert not token_path.exists()
+    finally:
+        await _stop(task, stop)
+
+
+async def test_other_handshake_rejections_keep_the_token_and_retry(cloud_mock, tmp_path):
+    cloud_mock.reject_status = 503
+    task, _ha, _idem, _q, stop, token_path = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await asyncio.sleep(0.3)
+        assert not task.done()
+        assert token_path.exists()
+    finally:
+        await _stop(task, stop)
+
+
 async def test_cmd_call_service_relays_to_ha(cloud_mock, tmp_path):
     task, ha, idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path)
     try:

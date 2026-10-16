@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.20
+
+- Unpair when the cloud says so: an `unpair` command, or a 401 on reconnect after the owner replaced the credential in the app, drops the install token and shows a fresh pairing code instead of retrying the dead token forever.
+
 ## 0.1.19
 
 - Record a clip when the cloud asks: the hub's main stream through the add-on's own go2rtc, a poster frame first, the MP4 uploaded straight to the Argus bucket with the signed URL the cloud sent, every step reported back, and a file that could not be uploaded kept in a bounded spool under /data until a fresh URL arrives. Needs the same Reolink hub login as push-to-talk. `clip_spool_mb` caps the spool.

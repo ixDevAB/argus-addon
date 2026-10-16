@@ -1,5 +1,6 @@
 import asyncio
 import json
+from http import HTTPStatus
 from typing import Any
 
 import websockets
@@ -19,12 +20,19 @@ class CloudMock:
         self._pair_event = asyncio.Event()
         # When set, a pair_code is sent to every new /ws/pair connection on open.
         self.pair_code: dict[str, Any] | None = None
+        # When set, every handshake is refused with this HTTP status instead of upgraded.
+        self.reject_status: int | None = None
 
     async def start(self) -> str:
-        self._server = await serve(self._handler, "127.0.0.1", 0)
+        self._server = await serve(self._handler, "127.0.0.1", 0, process_request=self._process_request)
         sock = next(iter(self._server.sockets))
         self._port = sock.getsockname()[1]
         return self.url
+
+    def _process_request(self, conn: ServerConnection, request):
+        if self.reject_status is None:
+            return None
+        return conn.respond(HTTPStatus(self.reject_status), "refused\n")
 
     @property
     def url(self) -> str:

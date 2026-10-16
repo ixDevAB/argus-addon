@@ -108,6 +108,11 @@ async def run(
                             continue
                         if not isinstance(env, Cmd):
                             continue
+                        if env.op == "unpair":
+                            await ws.send(Ack(type="ack", id=env.id).model_dump_json())
+                            token_path.unlink(missing_ok=True)
+                            log.warning("unpaired by the server, returning to pairing mode")
+                            return
                         if env.op in SLOW_OPS:
                             # A WebRTC negotiation waits seconds for a camera to wake. It must never
                             # sit in front of a siren command, so it runs off the receive loop.
@@ -125,6 +130,13 @@ async def run(
                     restore_task.cancel()
                     for task in background:
                         task.cancel()
+            attempt += 1
+        except websockets.exceptions.InvalidStatus as exc:
+            if exc.response.status_code == 401:
+                token_path.unlink(missing_ok=True)
+                log.warning("install token rejected, returning to pairing mode")
+                return
+            log.warning("ws handshake rejected", status=exc.response.status_code)
             attempt += 1
         except (websockets.ConnectionClosed, OSError) as exc:
             log.warning("ws closed", error=str(exc))

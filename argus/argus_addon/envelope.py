@@ -88,6 +88,7 @@ class Cmd(BaseModel):
         "extend_clip",
         "upload_clip",
         "cancel_clip",
+        "unpair",
     ]
     args: dict[str, Any]
 

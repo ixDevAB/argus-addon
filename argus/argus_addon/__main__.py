@@ -167,6 +167,9 @@ async def main():
                 with contextlib.suppress(asyncio.CancelledError):
                     await unpair_task
                 exc = ws_task.exception()
+                if exc is None and not _has_token(token_path):
+                    log.info("unpaired by the server, returning to pairing mode")
+                    continue
                 log.error("ws_client.run exited unexpectedly, restarting", error=str(exc) if exc else None)
                 await asyncio.sleep(5)
                 continue
