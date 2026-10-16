@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ import structlog
 from aiohttp import web
 
 from argus_addon import ingress, pair_client, ws_client
+from argus_addon.clips import DEFAULT_SPOOL_BYTES, ClipRecorder, Spool
 from argus_addon.envelope import State
 from argus_addon.ha_client import HaClient, is_battery_sensor, is_battery_state_sensor
 from argus_addon.idempotency import Idempotency
@@ -24,6 +26,16 @@ DEFAULT_CLOUD_URL = "wss://ws.argus.ixdev.se/ws/addon"
 DEFAULT_HA_WS_URL = "ws://supervisor/core/websocket"
 DEFAULT_OPTIONS_PATH = Path("/data/options.json")
 DEFAULT_GO2RTC_CONFIG_PATH = Path("/data/go2rtc.yaml")
+DEFAULT_SPOOL_PATH = Path("/data/clips")
+
+
+def _spool_bytes(options_path: Path) -> int:
+    try:
+        raw = json.loads(options_path.read_text() or "{}") if options_path.exists() else {}
+        mb = int(raw.get("clip_spool_mb") or 0)
+    except (ValueError, TypeError):
+        mb = 0
+    return mb * 1024 * 1024 if mb > 0 else DEFAULT_SPOOL_BYTES
 
 
 def _has_token(token_path: Path) -> bool:
@@ -95,15 +107,22 @@ async def main():
         on_event=_build_state_forwarder(send_queue),
     )
 
-    talk_config = TalkConfig.from_options(Path(os.environ.get("ARGUS_OPTIONS_PATH", str(DEFAULT_OPTIONS_PATH))))
+    options_path = Path(os.environ.get("ARGUS_OPTIONS_PATH", str(DEFAULT_OPTIONS_PATH)))
+    talk_config = TalkConfig.from_options(options_path)
     talk: TalkService | None = None
+    recorder: ClipRecorder | None = None
     if talk_config.configured:
         go2rtc = Go2rtc(Path(os.environ.get("ARGUS_GO2RTC_CONFIG_PATH", str(DEFAULT_GO2RTC_CONFIG_PATH))))
         if await go2rtc.start():
             talk = TalkService(talk_config, go2rtc)
-            log.info("talk enabled", hub=talk_config.host)
+            spool = Spool(
+                Path(os.environ.get("ARGUS_SPOOL_PATH", str(DEFAULT_SPOOL_PATH))),
+                max_bytes=_spool_bytes(options_path),
+            )
+            recorder = ClipRecorder(talk_config, go2rtc, send_queue, spool, hub=talk._hub)
+            log.info("talk and clips enabled", hub=talk_config.host, spooled=len(spool.entries))
     else:
-        log.info("talk disabled: no Reolink hub login in the add-on options")
+        log.info("talk and clips disabled: no Reolink hub login in the add-on options")
 
     code_holder = CodeHolder()
     unpair_event = asyncio.Event()
@@ -138,6 +157,7 @@ async def main():
                     send_queue=send_queue,
                     idempotency=idempotency,
                     talk=talk,
+                    recorder=recorder,
                 )
             )
             unpair_task = asyncio.create_task(unpair_event.wait())

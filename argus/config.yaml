@@ -1,5 +1,5 @@
 name: "Argus"
-version: "0.1.18"
+version: "0.1.19"
 slug: "argus"
 description: "Argus home safety add-on. Connects to the Argus cloud over a secure outbound WebSocket."
 arch:
@@ -21,8 +21,10 @@ options:
   reolink_username: ""
   reolink_password: ""
   reolink_use_https: false
+  clip_spool_mb: 300
 schema:
   reolink_host: "str?"
   reolink_username: "str?"
   reolink_password: "password?"
   reolink_use_https: "bool?"
+  clip_spool_mb: "int(50,2000)?"

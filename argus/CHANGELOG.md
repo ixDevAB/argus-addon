@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.19
+
+- Record a clip when the cloud asks: the hub's main stream through the add-on's own go2rtc, a poster frame first, the MP4 uploaded straight to the Argus bucket with the signed URL the cloud sent, every step reported back, and a file that could not be uploaded kept in a bounded spool under /data until a fresh URL arrives. Needs the same Reolink hub login as push-to-talk. `clip_spool_mb` caps the spool.
+
 ## 0.1.18
 
 - Forward number and select state changes (PIR sensitivity, AI sensitivities, day/night mode) so a setting changed in the app or in the Reolink app shows its real value in Argus.

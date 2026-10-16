@@ -17,7 +17,19 @@ Open the **Argus** panel and use the **Unpair** button. The add-on drops its tok
 
 ## Configuration
 
-None. The add-on has no options; everything it needs arrives through pairing.
+Everything the alarm needs arrives through pairing. The options below only matter for cameras
+behind a Reolink Home Hub, and they stay on this box:
+
+| Option              | Purpose                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------- |
+| `reolink_host`      | The hub's address on your network.                                                          |
+| `reolink_username`  | A hub user. Push-to-talk and clip recording open the hub's RTSP with it.                    |
+| `reolink_password`  | Its password.                                                                               |
+| `reolink_use_https` | Talk to the hub's API over HTTPS instead of HTTP.                                           |
+| `clip_spool_mb`     | How much of `/data` a clip that could not be uploaded yet may hold (50 to 2000, default 300). |
+
+Without the hub login the add-on still runs the alarm; push-to-talk and clips are off and say so
+in the log.
 
 ## What it stores
 
@@ -27,6 +39,8 @@ Both files live in the add-on's own data volume and survive restarts and updates
 | ---------------------- | ------------------------------------------------------------------------------ |
 | `/data/token.txt`      | The cloud token issued at pairing. Removed when you unpair.                    |
 | `/data/idempotency.db` | Tracks handled commands so a reconnect cannot run the same one twice.          |
+| `/data/go2rtc.yaml`    | The config of the add-on's own go2rtc, written at start when the hub login is set. |
+| `/data/clips/`         | Clips recorded while the cloud could not take them, until a fresh upload URL comes. |
 
 A full Home Assistant backup includes both, so restoring a backup also restores the pairing.
 

@@ -20,7 +20,16 @@ INITIAL_BACKOFF = 1.0
 MAX_BACKOFF = 30.0
 
 # Commands that block on Home Assistant for seconds and therefore run as background tasks.
-SLOW_OPS = {"webrtc_offer", "webrtc_close", "talk_offer", "talk_close"}
+SLOW_OPS = {
+    "webrtc_offer",
+    "webrtc_close",
+    "talk_offer",
+    "talk_close",
+    "record_clip",
+    "extend_clip",
+    "upload_clip",
+    "cancel_clip",
+}
 
 # HA enables a registry entity on its next integration reload, about 30 s after the update.
 RESYNC_AFTER_ENABLE_S = 45.0
@@ -41,6 +50,7 @@ async def run(
     entity_retry_interval: float = 5.0,
     stop_event: asyncio.Event | None = None,
     talk=None,
+    recorder=None,
 ):
     attempt = 0
     while True:
@@ -70,6 +80,9 @@ async def run(
                 log.info("connected", attempt=attempt)
                 hello = Hello(type="hello", addon_version=__version__, ha_version=ha_client.version())
                 await ws.send(hello.model_dump_json())
+                if recorder is not None:
+                    # Files recorded while the link was down ask for a fresh upload URL.
+                    await recorder.resend_spooled()
                 hb_task = asyncio.create_task(heartbeat(ws, heartbeat_interval))
                 send_task = asyncio.create_task(_send_loop(ws, send_queue))
                 entity_task = asyncio.create_task(
@@ -98,11 +111,13 @@ async def run(
                         if env.op in SLOW_OPS:
                             # A WebRTC negotiation waits seconds for a camera to wake. It must never
                             # sit in front of a siren command, so it runs off the receive loop.
-                            task = asyncio.create_task(_handle_cmd(ws, env, ha_client, idempotency, talk=talk))
+                            task = asyncio.create_task(
+                                _handle_cmd(ws, env, ha_client, idempotency, talk=talk, recorder=recorder)
+                            )
                             background.add(task)
                             task.add_done_callback(background.discard)
                         else:
-                            await _handle_cmd(ws, env, ha_client, idempotency, talk=talk)
+                            await _handle_cmd(ws, env, ha_client, idempotency, talk=talk, recorder=recorder)
                 finally:
                     hb_task.cancel()
                     send_task.cancel()
@@ -198,7 +213,7 @@ async def _send_states(ws, ha_client, timeout: float) -> None:
         log.warning("states snapshot failed", error=str(exc))
 
 
-async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency, *, talk=None) -> None:
+async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency, *, talk=None, recorder=None) -> None:
     if idempotency.seen(cmd.id):
         ack = Ack(type="ack", id=cmd.id, duplicate=True)
         await ws.send(ack.model_dump_json())
@@ -222,6 +237,8 @@ async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency, *, talk
             result = await _dispatch_talk_offer(ha_client, talk, cmd.args)
         elif cmd.op == "talk_close":
             result = await _dispatch_talk_close(talk, cmd.args)
+        elif cmd.op in {"record_clip", "extend_clip", "upload_clip", "cancel_clip"}:
+            result = await _dispatch_clip(recorder, ha_client, cmd.op, cmd.args)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -255,6 +272,20 @@ async def _dispatch_talk_offer(ha_client, talk, args: dict[str, Any]) -> dict[st
     if not isinstance(session_id, str) or not session_id:
         raise ValueError("talk_offer requires session_id")
     return await talk.offer(entity_id, ha_client.unique_id_of(entity_id), sdp, session_id)
+
+
+async def _dispatch_clip(recorder, ha_client, op: str, args: dict[str, Any]) -> dict[str, Any]:
+    if recorder is None:
+        raise RuntimeError("clips are not available: enter the Reolink hub login in the add-on options")
+    if op == "record_clip":
+        entity_id = args.get("entity_id")
+        unique_id = ha_client.unique_id_of(entity_id) if isinstance(entity_id, str) else None
+        return await recorder.record(args, unique_id)
+    if op == "extend_clip":
+        return await recorder.extend(args)
+    if op == "upload_clip":
+        return await recorder.upload(args)
+    return await recorder.cancel(args)
 
 
 async def _dispatch_talk_close(talk, args: dict[str, Any]) -> dict[str, Any]:

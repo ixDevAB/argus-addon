@@ -76,8 +76,38 @@ class StatesSnapshot(BaseModel):
 class Cmd(BaseModel):
     type: Literal["cmd"]
     id: str
-    op: Literal["call_service", "test_trigger", "resync", "webrtc_offer", "webrtc_close", "talk_offer", "talk_close"]
+    op: Literal[
+        "call_service",
+        "test_trigger",
+        "resync",
+        "webrtc_offer",
+        "webrtc_close",
+        "talk_offer",
+        "talk_close",
+        "record_clip",
+        "extend_clip",
+        "upload_clip",
+        "cancel_clip",
+    ]
     args: dict[str, Any]
+
+
+class Clip(BaseModel):
+    """Progress of a recording: the cloud checks the keys against the ones it chose."""
+
+    type: Literal["clip"]
+    clip_id: str
+    status: Literal["recording", "poster_uploaded", "uploaded", "spooled", "failed"]
+    media_started_at: str | None = None
+    poster_key: str | None = None
+    object_key: str | None = None
+    bytes: int | None = None
+    duration_ms: int | None = None
+    codec: str | None = None
+    width: int | None = None
+    height: int | None = None
+    reason: str | None = None
+    detail: str | None = None
 
 
 class Ack(BaseModel):
@@ -90,7 +120,7 @@ class Ack(BaseModel):
 
 
 Envelope = Annotated[
-    Heartbeat | Hello | EntityList | State | Cmd | Ack,
+    Heartbeat | Hello | EntityList | State | Cmd | Ack | Clip,
     Field(discriminator="type"),
 ]
 
