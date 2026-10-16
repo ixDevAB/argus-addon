@@ -12,6 +12,7 @@ class FakeHaClient:
         self._version = "2026.5.0"
         self.entities: list = []
         self.states: list = []
+        self.link_restored = asyncio.Event()
 
     def version(self) -> str:
         return self._version
@@ -209,6 +210,25 @@ async def test_states_snapshot_sent_on_connect(cloud_mock, tmp_path):
         assert env["states"][0]["state"] == "on"
     finally:
         await _stop(task, stop)
+
+
+async def test_states_snapshot_resent_when_ha_link_is_restored(cloud_mock, tmp_path):
+    ha = FakeHaClient()
+    ha.states = [
+        {"entity_id": "binary_sensor.hall_upp", "state": "unavailable", "attributes": {"device_class": "door"}}
+    ]
+    task, _, _, _, stop_event, _ = await _start_runner(cloud_mock, tmp_path, ha_client=ha)
+    try:
+        first = await cloud_mock.wait_for(lambda e: e.get("type") == "states", timeout=3.0)
+        assert first["states"][0]["state"] == "unavailable"
+        cloud_mock.received.clear()
+        ha.states = [{"entity_id": "binary_sensor.hall_upp", "state": "off", "attributes": {"device_class": "door"}}]
+        ha.link_restored.set()
+        again = await cloud_mock.wait_for(lambda e: e.get("type") == "states", timeout=3.0)
+        assert again["states"][0]["state"] == "off"
+        assert not ha.link_restored.is_set()
+    finally:
+        await _stop(task, stop_event)
 
 
 async def test_resync_cmd_refetches_and_resends_entity_list(cloud_mock, tmp_path):

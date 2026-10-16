@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.17
+
+- Resend the state snapshot whenever the link to Home Assistant Core comes back. A Core restart marks entities unavailable and restores them while the add-on is reconnecting, and those transitions never arrived as events, so a sensor that had not moved since stayed silent in Argus until it did.
+
 ## 0.1.16
 
 - Send the devices behind the synced entities (name, manufacturer, model, firmware, hardware, area, hub) so Argus can show each physical unit, what it provides, and its firmware.

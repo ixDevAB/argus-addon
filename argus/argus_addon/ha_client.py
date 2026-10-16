@@ -119,6 +119,10 @@ class HaClient:
         self._lock = asyncio.Lock()
         # Set when fetch_entities enabled registry entities that HA will materialise shortly.
         self.pending_resync = False
+        # Set each time the link to Core comes back after dropping. Anything that changed while
+        # we were away (an entity going unavailable and back during a Core restart) was never
+        # seen as an event, so the cloud needs a fresh state snapshot.
+        self.link_restored = asyncio.Event()
         # entity_id -> registry unique_id, kept for talk (a Reolink camera's hub + camera uid).
         self._unique_ids: dict[str, str] = {}
         # The devices behind the last fetched entity list; sent alongside it.
@@ -237,6 +241,7 @@ class HaClient:
             try:
                 await self._ensure_connected()
                 log.info("ha_client link restored")
+                self.link_restored.set()
                 return
             except asyncio.CancelledError:
                 raise

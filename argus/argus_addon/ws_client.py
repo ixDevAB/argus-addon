@@ -80,6 +80,9 @@ async def run(
                         retry_interval=entity_retry_interval,
                     )
                 )
+                restore_task = asyncio.create_task(
+                    _resync_after_ha_restore(ws, ha_client, timeout=entity_fetch_timeout)
+                )
                 background: set[asyncio.Task[None]] = set()
                 try:
                     async for raw in ws:
@@ -104,6 +107,7 @@ async def run(
                     hb_task.cancel()
                     send_task.cancel()
                     entity_task.cancel()
+                    restore_task.cancel()
                     for task in background:
                         task.cancel()
             attempt += 1
@@ -157,6 +161,23 @@ async def _sync_entities(ws, ha_client, *, timeout: float, retry_interval: float
                 retry_in=retry_interval,
             )
             await asyncio.sleep(retry_interval)
+
+
+async def _resync_after_ha_restore(ws, ha_client, *, timeout: float) -> None:
+    """Resend the state snapshot each time the link to Core comes back.
+
+    A Core restart marks entities unavailable and restores them while this add-on is still
+    reconnecting, so those transitions never arrive as events. Without this a door that has
+    not moved since the restart stays "silent" in Argus indefinitely.
+    """
+    restored = getattr(ha_client, "link_restored", None)
+    if restored is None:
+        return
+    while True:
+        await restored.wait()
+        restored.clear()
+        log.info("ha link restored; resending states snapshot")
+        await _send_states(ws, ha_client, timeout)
 
 
 async def _send_states(ws, ha_client, timeout: float) -> None:
