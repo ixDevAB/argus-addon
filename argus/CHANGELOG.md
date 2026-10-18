@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.0
+
+- Same code as 0.21.0 on the 1.X.Y line, which started when the Argus backend moved to Go. Backend 1.1.y speaks this add-on.
+
 ## 0.21.0
 
 - Same code as 0.1.20 under the shared version line: the add-on is always 0.X.0 and the backend 0.X.Y, X moving with every add-on release. Backend 0.21.y speaks this add-on.
