@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Clips upload in pieces while they record: go2rtc's fragmented MP4 is cut into `init.mp4` and segments of about four seconds that each start on a keyframe, and each piece goes to the bucket as soon as it closes, so the app can play a clip while it is still recording. A clip stops at the last segment the cloud signed, `extend_clip` brings more, and pieces that could not go up wait in the spool, one folder per clip, until the cloud hands fresh URLs. Needs the backend that speaks segments; the two ship together.
+
 ## 1.1.0
 
 - Same code as 0.21.0 on the 1.X.Y line, which started when the Argus backend moved to Go. Backend 1.1.y speaks this add-on.

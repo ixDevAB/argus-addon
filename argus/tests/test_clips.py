@@ -1,6 +1,5 @@
 import asyncio
 import json
-import struct
 import time
 from pathlib import Path
 
@@ -11,30 +10,16 @@ from aiohttp.test_utils import TestServer
 from argus_addon.clips import MAX_CLIP_S, ClipRecorder, Spool, probe_mp4, rtsp_clip_source, stream_name
 from argus_addon.envelope import Clip
 from argus_addon.talk import Go2rtc, TalkConfig
+from tests.fmp4_fixture import frames, init_segment
 
 CONFIG = TalkConfig(host="192.168.1.50", username="argus", password="p@ss/word")
 
 
-def box(kind: bytes, payload: bytes) -> bytes:
-    return struct.pack(">I4s", 8 + len(payload), kind) + payload
-
-
-def fake_init_segment(codec: bytes = b"avc1", width: int = 2560, height: int = 1440) -> bytes:
-    entry = box(codec, b"\x00" * 6 + b"\x00\x01" + b"\x00" * 16 + struct.pack(">HH", width, height) + b"\x00" * 50)
-    stsd = box(b"stsd", b"\x00" * 4 + struct.pack(">I", 1) + entry)
-    moov = box(b"moov", box(b"trak", box(b"mdia", box(b"minf", box(b"stbl", stsd)))))
-    return box(b"ftyp", b"iso5") + moov
-
-
-def fake_fragment(n: int) -> bytes:
-    return box(b"moof", b"\x00" * 16) + box(b"mdat", bytes([n % 256]) * 4096)
-
-
 def test_probe_reads_codec_and_size_from_the_moov():
-    info = probe_mp4(fake_init_segment() + fake_fragment(1))
+    info = probe_mp4(init_segment() + b"".join(frames(1)))
     assert info == {"has_moov": True, "codec": "h264", "width": 2560, "height": 1440}
-    assert probe_mp4(fake_init_segment(b"hvc1", 3840, 2160))["codec"] == "h265"
-    assert probe_mp4(fake_fragment(1)) == {"has_moov": False}
+    assert probe_mp4(init_segment(b"hvc1", 3840, 2160))["codec"] == "h265"
+    assert probe_mp4(b"".join(frames(1))) == {"has_moov": False}
 
 
 def test_sources_and_names():
@@ -44,12 +29,15 @@ def test_sources_and_names():
 
 
 class Go2rtcMock:
-    """frame.jpeg answers at once; stream.mp4 streams fragments until the client goes away."""
+    """frame.jpeg answers at once; stream.mp4 sends the init, then `video_frames` frames with their
+    audio, then either ends or holds the connection open until the client goes away."""
 
     def __init__(self):
         self.streams: dict[str, str] = {}
         self.added: list[tuple[str, str]] = []
-        self.fragment_interval = 0.02
+        self.fragment_interval = 0.001
+        self.video_frames = 100
+        self.hold_open = False
         self.fail_stream = False
         self.never_send = False
 
@@ -84,13 +72,13 @@ class Go2rtcMock:
         if self.never_send:
             await asyncio.sleep(60)
             return resp
-        await resp.write(fake_init_segment())
-        n = 0
         try:
-            while True:
-                await resp.write(fake_fragment(n))
-                n += 1
+            await resp.write(init_segment())
+            for frag in frames(self.video_frames):
+                await resp.write(frag)
                 await asyncio.sleep(self.fragment_interval)
+            if self.hold_open:
+                await asyncio.sleep(60)
         except (ConnectionResetError, asyncio.CancelledError):
             pass
         return resp
@@ -99,7 +87,9 @@ class Go2rtcMock:
 class BucketMock:
     def __init__(self):
         self.puts: list[tuple[str, str, int]] = []
+        self.bodies: dict[str, bytes] = {}
         self.fail = False
+        self.fail_after: int | None = None
 
     def app(self) -> web.Application:
         app = web.Application(client_max_size=256 * 1024 * 1024)
@@ -108,9 +98,11 @@ class BucketMock:
 
     async def put(self, request: web.Request):
         body = await request.read()
-        if self.fail:
+        if self.fail or (self.fail_after is not None and len(self.puts) >= self.fail_after):
             return web.Response(status=503, text="later")
-        self.puts.append((request.match_info["key"], request.headers.get("Content-Type", ""), len(body)))
+        key = request.match_info["key"]
+        self.puts.append((key, request.headers.get("Content-Type", ""), len(body)))
+        self.bodies[key] = body
         return web.Response(status=200)
 
 
@@ -151,21 +143,43 @@ def make_recorder(go2rtc_mock, tmp_path: Path, **kw) -> tuple[ClipRecorder, asyn
     return rec, queue
 
 
-def record_args(bucket_mock, clip_id="c1", duration_s=1, **extra):
+def key(clip_id: str, name: str) -> str:
+    return f"homes/h/clips/{clip_id}/{name}"
+
+
+def init_piece(bucket_mock, clip_id: str, url: bool = True) -> dict:
+    put = {"headers": {"Content-Type": "video/mp4"}}
+    if url:
+        put["url"] = f"{bucket_mock.base}/{key(clip_id, 'init.mp4')}"
+    return {"object_key": key(clip_id, "init.mp4"), "put": put}
+
+
+def segment_pieces(bucket_mock, clip_id: str, indices, url: bool = True) -> list[dict]:
+    out = []
+    for i in indices:
+        put = {"headers": {"Content-Type": "video/iso.segment"}}
+        if url:
+            put["url"] = f"{bucket_mock.base}/{key(clip_id, f'{i:03d}.m4s')}"
+        out.append({"index": i, "object_key": key(clip_id, f"{i:03d}.m4s"), "put": put})
+    return out
+
+
+def record_args(bucket_mock, clip_id="c1", duration_s=30, signed=4, **extra):
     return {
         "clip_id": clip_id,
         "entity_id": "camera.entre",
         "stream": "main",
         "duration_s": duration_s,
+        "segment_s": 4,
         "max_bytes": 60_000_000,
-        "put": {"url": f"{bucket_mock.base}/homes/h/clips/{clip_id}/000.mp4", "headers": {"Content-Type": "video/mp4"}},
+        "init": init_piece(bucket_mock, clip_id),
+        "segments": segment_pieces(bucket_mock, clip_id, range(signed)),
         "poster_put": {
-            "url": f"{bucket_mock.base}/homes/h/clips/{clip_id}/poster.jpg",
+            "url": f"{bucket_mock.base}/{key(clip_id, 'poster.jpg')}",
             "headers": {"Content-Type": "image/jpeg"},
         },
         "url_expires_at": "2099-01-01T00:00:00Z",
-        "object_key": f"homes/h/clips/{clip_id}/000.mp4",
-        "poster_key": f"homes/h/clips/{clip_id}/poster.jpg",
+        "poster_key": key(clip_id, "poster.jpg"),
         **extra,
     }
 
@@ -182,120 +196,200 @@ async def drain(queue: asyncio.Queue, timeout: float = 5.0) -> list[Clip]:
     return out
 
 
-async def test_records_posters_first_then_uploads_the_clip_and_reports_every_step(go2rtc_mock, bucket_mock, tmp_path):
+UID = "9527000JQ5EC7MCL_9527000KN8I819HA_main"
+
+
+async def test_records_the_poster_then_uploads_the_init_and_each_segment_as_it_closes(
+    go2rtc_mock, bucket_mock, tmp_path
+):
     rec, queue = make_recorder(go2rtc_mock, tmp_path)
-    result = await rec.record(record_args(bucket_mock), "9527000JQ5EC7MCL_9527000KN8I819HA_main")
-    assert result == {"accepted": True}
-    frames = await drain(queue)
+    assert await rec.record(record_args(bucket_mock), UID) == {"accepted": True}
+    frames_ = await drain(queue)
     assert go2rtc_mock.added == [("clip_camera_entre", rtsp_clip_source(CONFIG, 2, "main"))]
-    assert [f.status for f in frames] == ["poster_uploaded", "recording", "uploaded"]
-    assert frames[0].poster_key == "homes/h/clips/c1/poster.jpg"
-    assert frames[1].media_started_at and frames[1].media_started_at.endswith("Z")
-    done = frames[2]
-    assert done.object_key == "homes/h/clips/c1/000.mp4"
-    assert done.codec == "h264" and done.width == 2560 and done.height == 1440
-    assert done.bytes and done.bytes > 4096 and 800 <= (done.duration_ms or 0) <= 3000
-    assert [(k, ct) for k, ct, _ in bucket_mock.puts] == [
-        ("homes/h/clips/c1/poster.jpg", "image/jpeg"),
-        ("homes/h/clips/c1/000.mp4", "video/mp4"),
+    assert [f.status for f in frames_] == [
+        "poster_uploaded",
+        "recording",
+        "init_uploaded",
+        "segment_uploaded",
+        "segment_uploaded",
+        "uploaded",
     ]
-    assert bucket_mock.puts[1][2] == done.bytes
-    # The stream is released, the spool is empty, a repeat is a duplicate.
+    assert frames_[1].media_started_at and frames_[1].media_started_at.endswith("Z")
+    init = frames_[2]
+    assert init.object_key == key("c1", "init.mp4") and init.bytes == len(init_segment())
+    assert init.codec == "h264" and init.width == 2560 and init.height == 1440
+    segs = frames_[3:5]
+    assert [(f.index, f.object_key, f.duration_ms) for f in segs] == [
+        (0, key("c1", "000.m4s"), 5760),
+        (1, key("c1", "001.m4s"), 2240),
+    ]
+    done = frames_[5]
+    assert done.segments == 2 and done.duration_ms == 8000
+    assert done.bytes == init.bytes + sum(f.bytes or 0 for f in segs)
+    assert [(k, ct) for k, ct, _ in bucket_mock.puts] == [
+        (key("c1", "poster.jpg"), "image/jpeg"),
+        (key("c1", "init.mp4"), "video/mp4"),
+        (key("c1", "000.m4s"), "video/iso.segment"),
+        (key("c1", "001.m4s"), "video/iso.segment"),
+    ]
+    # The pieces joined are the stream go2rtc sent, byte for byte.
+    joined = b"".join(bucket_mock.bodies[key("c1", n)] for n in ("init.mp4", "000.m4s", "001.m4s"))
+    assert joined == init_segment() + b"".join(frames(100))
+    # The stream is released, nothing is left on disk, a repeat is a duplicate.
     assert "clip_camera_entre" not in go2rtc_mock.streams
-    assert not list((tmp_path / "spool").glob("*.mp4"))
-    assert await rec.record(record_args(bucket_mock), "x_9527000KN8I819HA_main") == {
-        "accepted": True,
-        "duplicate": True,
-    }
+    assert [p.name for p in (tmp_path / "spool").iterdir()] == ["index.json"]
+    assert await rec.record(record_args(bucket_mock), UID) == {"accepted": True, "duplicate": True}
 
 
-async def test_extend_pushes_the_deadline_up_to_the_cap(go2rtc_mock, bucket_mock, tmp_path):
+async def test_a_clip_closes_before_a_segment_nobody_signed(go2rtc_mock, bucket_mock, tmp_path):
     rec, queue = make_recorder(go2rtc_mock, tmp_path)
-    await rec.record(record_args(bucket_mock, duration_s=1), "x_9527000KN8I819HA_main")
+    go2rtc_mock.hold_open = True
+    await rec.record(record_args(bucket_mock, signed=1), UID)
+    frames_ = await drain(queue)
+    assert frames_[-1].status == "uploaded" and frames_[-1].segments == 1 and frames_[-1].duration_ms == 5760
+    assert key("c1", "001.m4s") not in bucket_mock.bodies
+
+
+async def test_extend_signs_more_segments_and_pushes_the_deadline_up_to_the_cap(go2rtc_mock, bucket_mock, tmp_path):
+    rec, queue = make_recorder(go2rtc_mock, tmp_path)
+    go2rtc_mock.fragment_interval = 0.005
+    await rec.record(record_args(bucket_mock, duration_s=1, signed=1), UID)
     started = rec.in_flight["c1"].started
-    assert (await rec.extend({"clip_id": "c1", "by_s": 1}))["extended"] is True
-    assert rec.in_flight["c1"].deadline == pytest.approx(started + 2, abs=0.01)
+    out = await rec.extend(
+        {
+            "clip_id": "c1",
+            "by_s": 10,
+            "segments": segment_pieces(bucket_mock, "c1", [1, 2]),
+            "url_expires_at": "2099-01-01T00:00:00Z",
+        }
+    )
+    assert out["extended"] is True and out["segments"] == 3
+    assert rec.in_flight["c1"].deadline == pytest.approx(started + 11, abs=0.01)
+    frames_ = await drain(queue)
+    assert frames_[-1].status == "uploaded" and frames_[-1].segments == 2
+    assert key("c1", "001.m4s") in bucket_mock.bodies
+    assert (await rec.extend({"clip_id": "nope"})) == {"extended": False}
+
+
+async def test_extend_stops_at_the_cap_and_cancel_discards(go2rtc_mock, bucket_mock, tmp_path):
+    rec, queue = make_recorder(go2rtc_mock, tmp_path)
+    go2rtc_mock.hold_open = True
+    go2rtc_mock.video_frames = 10
+    await rec.record(record_args(bucket_mock, duration_s=1), UID)
+    started = rec.in_flight["c1"].started
     assert (await rec.extend({"clip_id": "c1", "by_s": 500}))["ends_in_s"] <= MAX_CLIP_S
     assert rec.in_flight["c1"].deadline == pytest.approx(started + MAX_CLIP_S, abs=0.01)
-    assert (await rec.extend({"clip_id": "nope"})) == {"extended": False}
     await rec.cancel({"clip_id": "c1"})
-    frames = await drain(queue)
-    assert frames[-1].status == "failed" and frames[-1].reason == "cancelled"
+    frames_ = await drain(queue)
+    assert frames_[-1].status == "failed" and frames_[-1].reason == "cancelled"
+    assert not (tmp_path / "spool" / "c1").exists()
 
 
-async def test_a_failed_upload_spools_the_file_and_a_fresh_url_finishes_it(go2rtc_mock, bucket_mock, tmp_path):
+async def test_a_failed_upload_spools_the_rest_and_fresh_urls_finish_it(go2rtc_mock, bucket_mock, tmp_path):
     rec, queue = make_recorder(go2rtc_mock, tmp_path)
-    bucket_mock.fail = True
-    await rec.record(record_args(bucket_mock), "x_9527000KN8I819HA_main")
-    frames = await drain(queue)
-    assert frames[-1].status == "spooled" and frames[-1].bytes
-    assert "c1" in rec.spool.entries and Path(rec.spool.entries["c1"]["path"]).exists()
+    bucket_mock.fail_after = 2
+    await rec.record(record_args(bucket_mock), UID)
+    frames_ = await drain(queue)
+    assert [f.status for f in frames_] == ["poster_uploaded", "recording", "init_uploaded", "spooled"]
+    spooled = frames_[-1]
+    assert spooled.segments == 2 and spooled.bytes == sum(
+        p.stat().st_size for p in (tmp_path / "spool" / "c1").iterdir()
+    )
+    assert sorted(p.name for p in (tmp_path / "spool" / "c1").iterdir()) == ["000.m4s", "001.m4s"]
 
     # A restart reloads the index and a reconnect re-announces it.
     reloaded = Spool(tmp_path / "spool")
     assert set(reloaded.entries) == {"c1"}
     await rec.resend_spooled()
+    assert (await queue.get()).segments == 2
+
+    # A replayed upload_clip carries no URLs: the add-on asks for fresh ones.
+    replay = {"clip_id": "c1", "segments": segment_pieces(bucket_mock, "c1", [0, 1], url=False)}
+    assert await rec.upload(replay) == {"uploaded": False, "spooled": True}
     assert (await queue.get()).status == "spooled"
 
-    bucket_mock.fail = False
-    out = await rec.upload(
-        {
-            "clip_id": "c1",
-            "put": {"url": f"{bucket_mock.base}/homes/h/clips/c1/000.mp4", "headers": {"Content-Type": "video/mp4"}},
-        }
-    )
-    assert out == {"uploaded": True}
-    done = await queue.get()
-    assert done.status == "uploaded" and done.object_key == "homes/h/clips/c1/000.mp4" and done.codec == "h264"
-    assert "c1" not in rec.spool.entries
-    assert await rec.upload({"clip_id": "c1", "put": {"url": "x"}}) == {"uploaded": False, "error": "not_in_spool"}
+    bucket_mock.fail_after = None
+    fresh = {
+        "clip_id": "c1",
+        "segments": segment_pieces(bucket_mock, "c1", [0, 1]),
+        "url_expires_at": "2099-01-01T00:00:00Z",
+    }
+    assert await rec.upload(fresh) == {"uploaded": True}
+    after = [await queue.get() for _ in range(3)]
+    assert [(f.status, f.index, f.duration_ms) for f in after] == [
+        ("segment_uploaded", 0, 5760),
+        ("segment_uploaded", 1, 2240),
+        ("uploaded", None, 8000),
+    ]
+    assert after[2].segments == 2 and after[2].bytes == len(init_segment()) + len(b"".join(frames(100)))
+    assert "c1" not in rec.spool.entries and not (tmp_path / "spool" / "c1").exists()
+    assert await rec.upload(fresh) == {"uploaded": False, "error": "not_in_spool"}
 
 
 async def test_an_expired_url_spools_without_trying(go2rtc_mock, bucket_mock, tmp_path):
     rec, queue = make_recorder(go2rtc_mock, tmp_path)
-    await rec.record(record_args(bucket_mock, url_expires_at="2000-01-01T00:00:00Z"), "x_9527000KN8I819HA_main")
-    frames = await drain(queue)
-    assert frames[-1].status == "spooled"
-    assert [k for k, _, _ in bucket_mock.puts] == ["homes/h/clips/c1/poster.jpg"]
+    await rec.record(record_args(bucket_mock, url_expires_at="2000-01-01T00:00:00Z"), UID)
+    frames_ = await drain(queue)
+    assert frames_[-1].status == "spooled" and frames_[-1].segments == 2
+    assert [k for k, _, _ in bucket_mock.puts] == [key("c1", "poster.jpg")]
+    assert sorted(p.name for p in (tmp_path / "spool" / "c1").iterdir()) == ["000.m4s", "001.m4s", "init.mp4"]
+
+
+def spooled_clip(spool: Spool, clip_id: str, size: int) -> None:
+    directory = spool.clip_dir(clip_id)
+    directory.mkdir(parents=True)
+    (directory / "000.m4s").write_bytes(b"x" * size)
+    spool.keep(clip_id, {"segments": 1, "duration_ms": 4000, "sizes": {"0": size}, "durations": {"0": 4000}})
 
 
 async def test_the_spool_evicts_oldest_first_and_refuses_what_never_fits(tmp_path):
     spool = Spool(tmp_path / "spool", max_bytes=10_000)
-    for i, size in enumerate((4_000, 4_000, 4_000)):
-        p = spool.path_for(f"c{i}", ".mp4")
-        p.write_bytes(b"x" * size)
-        spool.keep(f"c{i}", p, f"k{i}", {})
+    for i in range(3):
+        spooled_clip(spool, f"c{i}", 4_000)
     assert set(spool.entries) == {"c1", "c2"}
-    assert not spool.path_for("c0", ".mp4").exists()
-    big = spool.path_for("big", ".mp4")
-    big.write_bytes(b"x" * 20_000)
+    assert not spool.clip_dir("c0").exists()
     with pytest.raises(RuntimeError, match="spool_full"):
-        spool.keep("big", big, "kb", {})
-    assert not big.exists()
+        spooled_clip(spool, "big", 20_000)
+    assert not spool.clip_dir("big").exists()
     assert json.loads((tmp_path / "spool" / "index.json").read_text()).keys() == {"c1", "c2"}
+
+
+async def test_a_restart_clears_what_the_index_does_not_hold(tmp_path):
+    spool = Spool(tmp_path / "spool")
+    spooled_clip(spool, "kept", 100)
+    (tmp_path / "spool" / "cut_short").mkdir()
+    (tmp_path / "spool" / "cut_short" / "000.m4s").write_bytes(b"x")
+    (tmp_path / "spool" / "old.mp4").write_bytes(b"x")
+    reloaded = Spool(tmp_path / "spool")
+    assert set(reloaded.entries) == {"kept"}
+    assert sorted(p.name for p in (tmp_path / "spool").iterdir()) == ["index.json", "kept"]
 
 
 async def test_failures_are_reported_with_a_reason_and_the_stream_is_released(go2rtc_mock, bucket_mock, tmp_path):
     rec, queue = make_recorder(go2rtc_mock, tmp_path)
     go2rtc_mock.fail_stream = True
-    await rec.record(record_args(bucket_mock), "x_9527000KN8I819HA_main")
-    frames = await drain(queue)
-    assert frames[-1].status == "failed" and frames[-1].reason == "stream_failed"
+    await rec.record(record_args(bucket_mock), UID)
+    frames_ = await drain(queue)
+    assert frames_[-1].status == "failed" and frames_[-1].reason == "stream_failed"
     assert "clip_camera_entre" not in go2rtc_mock.streams
-    assert "c1" not in rec.in_flight
+    assert "c1" not in rec.in_flight and not (tmp_path / "spool" / "c1").exists()
 
     not_hub = await rec.record(record_args(bucket_mock, clip_id="c2"), None)
     assert not_hub["accepted"] is False
     assert (await queue.get()).reason == "stream_failed"
 
+    with pytest.raises(ValueError, match="init and segment"):
+        await rec.record({**record_args(bucket_mock, clip_id="c4"), "segments": []}, UID)
+
     rec.config = TalkConfig()
-    off = await rec.record(record_args(bucket_mock, clip_id="c3"), "x_9527000KN8I819HA_main")
+    off = await rec.record(record_args(bucket_mock, clip_id="c3"), UID)
     assert off == {"accepted": False, "error": "not_configured"}
     assert (await queue.get()).reason == "not_configured"
 
 
 async def test_at_most_two_recordings_run_at_once(go2rtc_mock, bucket_mock, tmp_path):
     rec, _queue = make_recorder(go2rtc_mock, tmp_path)
+    go2rtc_mock.hold_open = True
     await rec.record(record_args(bucket_mock, clip_id="a", duration_s=2), "x_9527000KN8I819HA_main")
     await rec.record(
         {**record_args(bucket_mock, clip_id="b", duration_s=2), "entity_id": "camera.two"}, "x_9527000KN8I819HB_main"
@@ -307,3 +401,4 @@ async def test_at_most_two_recordings_run_at_once(go2rtc_mock, bucket_mock, tmp_
     await rec.close_all()
     await asyncio.sleep(0.1)
     assert rec.in_flight == {}
+    assert [p.name for p in (tmp_path / "spool").iterdir()] == ["index.json"]

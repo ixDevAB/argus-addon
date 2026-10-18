@@ -98,10 +98,14 @@ class Clip(BaseModel):
 
     type: Literal["clip"]
     clip_id: str
-    status: Literal["recording", "poster_uploaded", "uploaded", "spooled", "failed"]
+    status: Literal[
+        "recording", "poster_uploaded", "init_uploaded", "segment_uploaded", "uploaded", "spooled", "failed"
+    ]
     media_started_at: str | None = None
     poster_key: str | None = None
     object_key: str | None = None
+    index: int | None = None
+    segments: int | None = None
     bytes: int | None = None
     duration_ms: int | None = None
     codec: str | None = None
