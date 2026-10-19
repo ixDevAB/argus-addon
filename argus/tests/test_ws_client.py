@@ -28,6 +28,8 @@ class FakeHaClient:
 
     async def webrtc_offer(self, entity_id, sdp):
         self.calls.append({"webrtc_offer": entity_id, "sdp": sdp})
+        if entity_id == "camera.silent":
+            raise TimeoutError
         await asyncio.sleep(0.2)
         return {"session_id": "HA-1", "sdp": "v=0\r\na=answer\r\n"}
 
@@ -481,3 +483,21 @@ async def test_state_forwarder_passes_battery_sensors_and_drops_other_sensors():
     assert env.state == "12"
     assert env.attributes == {"device_class": "battery"}
     assert queue.empty()
+
+
+async def test_a_failure_without_a_message_still_acks_a_reason(cloud_mock, tmp_path):
+    task, _ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        cmd = {
+            "type": "cmd",
+            "id": "01939999-0000-7000-8000-0000000000b5",
+            "op": "webrtc_offer",
+            "args": {"entity_id": "camera.silent", "sdp": "v=0\r\n"},
+        }
+        await cloud_mock.send_to_client(cmd)
+        ack = await cloud_mock.wait_for(lambda e: e.get("type") == "ack" and e.get("id") == cmd["id"], timeout=3.0)
+        assert ack["error"] == "TimeoutError"
+        assert ack["result"] is None
+    finally:
+        await _stop(task, stop)

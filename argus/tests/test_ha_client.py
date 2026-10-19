@@ -397,7 +397,7 @@ async def test_webrtc_offer_times_out_without_answer(ha_mock):
     client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
     await client.connect()
     try:
-        with pytest.raises(TimeoutError):
+        with pytest.raises(TimeoutError, match=r"^camera_no_answer: no WebRTC answer from camera\.living_room"):
             await client.webrtc_offer("camera.living_room", "v=0\r\n", answer_timeout=0.3, candidate_window=0.1)
         assert len(ha_mock.unsubscribed) == 1
     finally:

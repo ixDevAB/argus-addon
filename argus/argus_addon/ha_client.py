@@ -53,7 +53,9 @@ def is_battery_state_sensor(entity_id: str, translation_key: str | None, options
 # folding them into the answer. In the field the server-reflexive candidate arrives
 # within ~50 ms of the answer; the window is the upper bound, not the typical wait.
 WEBRTC_CANDIDATE_WINDOW = 1.5
-WEBRTC_ANSWER_TIMEOUT = 15.0
+# Home Assistant answers one camera in a few seconds, but a second offer to the same Reolink hub
+# can wait for the first camera to wake; the cloud waits a little longer than this.
+WEBRTC_ANSWER_TIMEOUT = 25.0
 
 # Writable config entities (camera sensitivity, day/night mode, ...). Synced in the
 # entity_list with their current value + bounds/options and device grouping, but NOT
@@ -344,9 +346,14 @@ class HaClient:
         try:
             while answer is None:
                 remaining = deadline - loop.time()
-                if remaining <= 0:
-                    raise TimeoutError(f"no WebRTC answer from {entity_id} within {answer_timeout}s")
-                event = await asyncio.wait_for(queue.get(), timeout=remaining)
+                try:
+                    if remaining <= 0:
+                        raise TimeoutError
+                    event = await asyncio.wait_for(queue.get(), timeout=remaining)
+                except TimeoutError:
+                    raise TimeoutError(
+                        f"camera_no_answer: no WebRTC answer from {entity_id} within {answer_timeout}s"
+                    ) from None
                 kind = event.get("type")
                 if kind == "session":
                     session_id = event.get("session_id")

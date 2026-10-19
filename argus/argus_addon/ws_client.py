@@ -254,7 +254,8 @@ async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency, *, talk
     except asyncio.CancelledError:
         raise
     except Exception as exc:
-        error = str(exc)
+        # An exception without a message (a bare timeout) still has to tell the cloud something.
+        error = str(exc) or type(exc).__name__
         log.warning("cmd failed", op=cmd.op, id=cmd.id, error=error)
     idempotency.record(cmd.id)
     ack = Ack(type="ack", id=cmd.id, error=error, result=result)

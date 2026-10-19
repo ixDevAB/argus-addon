@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.0
+
+- A live view gets 25 s for Home Assistant to answer instead of 15, so a second camera on the same Reolink hub can wake while the first one streams. When no answer comes, the cloud is told `camera_no_answer` instead of an empty error, and no failed command is ever acknowledged without a reason. Pairs with backend 1.3.0, which waits 30 s.
+
 ## 1.2.0
 
 - Clips upload in pieces while they record: go2rtc's fragmented MP4 is cut into `init.mp4` and segments of about four seconds that each start on a keyframe, and each piece goes to the bucket as soon as it closes, so the app can play a clip while it is still recording. A clip stops at the last segment the cloud signed, `extend_clip` brings more, and pieces that could not go up wait in the spool, one folder per clip, until the cloud hands fresh URLs. Needs the backend that speaks segments; the two ship together.
