@@ -34,6 +34,22 @@ PAIRED_PAGE = (
 )
 
 
+COPY_SCRIPT = (
+    "var code=document.getElementById('code'),button=document.getElementById('copy');"
+    "function copied(){button.textContent='Copied';}"
+    "function fallback(){var r=document.createRange();r.selectNodeContents(code);"
+    "var s=getSelection();s.removeAllRanges();s.addRange(r);"
+    "if(document.execCommand('copy'))copied();}"
+    "button.addEventListener('click',function(){"
+    "var text=code.textContent.trim();"
+    "if(navigator.clipboard)navigator.clipboard.writeText(text).then(copied,fallback);"
+    "else fallback();});"
+    "var t=document.querySelector('time');"
+    "t.textContent=new Date(t.getAttribute('datetime'))"
+    ".toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});"
+)
+
+
 def _pairing_page(code_holder: CodeHolder) -> str:
     code = code_holder.code
     expires_at = code_holder.expires_at
@@ -59,7 +75,12 @@ def _pairing_page(code_holder: CodeHolder) -> str:
         f'<div id="code" style="font-size:3rem;font-weight:700;letter-spacing:0.3rem;'
         "text-align:center;font-variant-numeric:tabular-nums;padding:1rem 0;"
         f'user-select:all;cursor:pointer;">{safe_code}</div>'
-        f'<p id="expires">Expires at {html.escape(expires_at.isoformat())}.</p>'
+        '<p style="text-align:center;"><button type="button" id="copy" '
+        'style="font-size:1rem;padding:0.5rem 1.25rem;border-radius:0.5rem;'
+        'border:1px solid #999;background:#fff;cursor:pointer;">Copy code</button></p>'
+        f'<p id="expires">Expires at <time datetime="{html.escape(expires_at.isoformat())}">'
+        f"{expires_at.strftime('%H:%M:%S')} UTC</time>.</p>"
+        f"<script>{COPY_SCRIPT}</script>"
     )
     return _page(body)
 

@@ -38,6 +38,9 @@ async def test_index_shows_current_code(client):
     assert "012345" in body
     assert "Scan this QR code with the Argus app" in body
     assert "<svg" in body
+    assert 'id="copy"' in body
+    assert "Copy code" in body
+    assert "<time datetime=" in body
 
 
 async def test_index_falls_back_to_code_only_when_qr_fails(client, monkeypatch):

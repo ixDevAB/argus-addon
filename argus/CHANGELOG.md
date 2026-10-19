@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.1
+
+- The pairing page has a Copy code button, and the code's expiry shows as a time in your own time zone instead of a raw UTC timestamp.
+
 ## 1.3.0
 
 - A live view gets 25 s for Home Assistant to answer instead of 15, so a second camera on the same Reolink hub can wake while the first one streams. When no answer comes, the cloud is told `camera_no_answer` instead of an empty error, and no failed command is ever acknowledged without a reason. Pairs with backend 1.3.0, which waits 30 s.
