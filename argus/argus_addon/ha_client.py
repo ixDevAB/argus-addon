@@ -120,29 +120,26 @@ UNKNOWN_STATES = {"unavailable", "unknown"}
 
 
 def history_changes(current: Tracker, rows: list[dict[str, Any]], since: datetime) -> list[Tracker]:
-    """The comings and goings in a tracker's compressed history rows ({"s", "lu", "lc"}), from
-    since on. Home Assistant dates the state a tracker had at since at since itself, so only a row
-    after it is news, including a tracker that first appeared then. A scanned device that leaves
-    carries the last time a scan reached it."""
+    """The comings and goings in a tracker's compressed history rows ({"s", "a", "lu", "lc"}),
+    from since on. Home Assistant dates the state a tracker had at since at since itself, so only a
+    row after it is news, including a tracker that first appeared then. A scanned device that
+    leaves carries the last time a scan reached it, which its row says."""
     out: list[Tracker] = []
     state: str | None = None
-    last_home: datetime | None = None
     for row in rows:
         value = row.get("s")
         stamp = row.get("lc", row.get("lu"))
         if not isinstance(value, str) or not isinstance(stamp, int | float) or value in UNKNOWN_STATES:
             continue
         at = datetime.fromtimestamp(stamp, UTC)
-        updated = datetime.fromtimestamp(row.get("lu", stamp), UTC)
         if value == state:
-            if value == "home":
-                last_home = updated
             continue
-        seen = last_home if value != "home" and current.source_type == "router" else None
+        attrs = row.get("a") or {}
+        reached = _aware(attrs.get("last_time_reachable")) if value != "home" else None
+        seen = reached.astimezone(UTC) if reached else None
         if at > since:
             out.append(current.model_copy(update={"state": value, "changed_at": at, "last_seen_at": seen}))
         state = value
-        last_home = updated if value == "home" else None
     return out
 
 
@@ -656,9 +653,10 @@ class HaClient:
     async def fetch_tracker_history(self, since: datetime, trackers: list[Tracker]) -> list[Tracker]:
         """Every change of the trackers since then, oldest first, from Home Assistant's recorder.
 
-        The recorder keeps each scan of a device a network scanner reaches, so a device's departure
-        is dated by the last scan that reached it, not by the "gone" that comes a grace period later.
-        A tracker that was unavailable or unknown in between neither came nor went.
+        A scanned device's "gone" comes a grace period after it left and carries when a scan last
+        reached it, so its departure is dated by that. The attributes are only in the full rows, so
+        those are asked for. A tracker that was unavailable or unknown in between neither came nor
+        went.
         """
         out: list[Tracker] = []
         for current in trackers:
@@ -667,8 +665,8 @@ class HaClient:
                     "type": "history/history_during_period",
                     "start_time": since.isoformat(),
                     "entity_ids": [current.entity_id],
-                    "minimal_response": True,
-                    "no_attributes": True,
+                    "minimal_response": False,
+                    "no_attributes": False,
                     "significant_changes_only": False,
                 }
             )

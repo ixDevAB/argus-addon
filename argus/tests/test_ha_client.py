@@ -618,17 +618,17 @@ def _since():
 
 
 def test_a_scanned_phone_left_when_a_scan_last_reached_it():
-    phone = tracker_from_state(
-        {"entity_id": "device_tracker.apple_64_e3_d0", "state": "unavailable", "attributes": {"source_type": "router"}}
-    )
+    # Unavailable since a scanner reload, so Home Assistant says nothing of its source.
+    phone = tracker_from_state({"entity_id": "device_tracker.apple_64_e3_d0", "state": "unavailable", "attributes": {}})
+    reached = "2026-10-20T18:40:50+02:00"
     rows = [
-        {"s": "home", "lu": _ts(6, 0)},
-        {"s": "home", "lu": _ts(18, 36, 30)},
-        {"s": "unavailable", "lu": _ts(18, 36, 31)},
-        {"s": "home", "lu": _ts(18, 36, 36)},
-        {"s": "home", "lu": _ts(18, 40, 50)},
-        {"s": "not_home", "lu": _ts(19, 14, 35)},
-        {"s": "unavailable", "lu": _ts(20, 11, 5)},
+        {"s": "home", "a": {"last_time_reachable": "2026-10-20T18:25:59+02:00"}, "lu": _ts(6, 0)},
+        {"s": "home", "a": {"last_time_reachable": "2026-10-20T18:36:00+02:00"}, "lu": _ts(18, 36, 0)},
+        {"s": "unavailable", "a": {}, "lu": _ts(18, 36, 30)},
+        {"s": "home", "a": {"last_time_reachable": "2026-10-20T18:36:36+02:00"}, "lu": _ts(18, 36, 36)},
+        {"s": "home", "a": {"last_time_reachable": reached}, "lc": _ts(18, 36, 36), "lu": _ts(18, 40, 50)},
+        {"s": "not_home", "a": {"last_time_reachable": reached}, "lu": _ts(19, 14, 35)},
+        {"s": "unavailable", "a": {}, "lu": _ts(20, 11, 5)},
     ]
     got = history_changes(phone, rows, _since())
     assert [
@@ -679,6 +679,8 @@ async def test_the_history_of_every_tracker_comes_back_oldest_first(ha_mock):
         got = await client.fetch_tracker_history(_since(), trackers)
         assert [t.entity_id for t in got] == ["person.milli", "device_tracker.phone"]
         assert ha_mock.history_requests[0]["entity_ids"] == ["device_tracker.phone"]
-        assert ha_mock.history_requests[0]["no_attributes"] is True
+        assert ha_mock.history_requests[0]["no_attributes"] is False, (
+            "the departure row carries when a scan last reached the device"
+        )
     finally:
         await client.close()

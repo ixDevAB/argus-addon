@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.0
+
+- The replay asks Home Assistant for its full history rows, whose departure row carries when a scan last reached the device, so a phone that went unavailable after a scanner reload is still dated right.
+
 ## 1.6.0
 
 - The add-on replays Home Assistant's own record of every person's and device's comings and goings: the last day when it connects, the last two hours every ten minutes. Argus takes it as the record of that period, so a change it missed or dated late is put right, and a scanned phone's departure is dated by the last scan that reached it. Needs backend 1.6.0 or later.
