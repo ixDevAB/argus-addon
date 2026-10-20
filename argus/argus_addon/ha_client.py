@@ -68,6 +68,11 @@ WEBRTC_ANSWER_TIMEOUT = 25.0
 CONFIG_DOMAINS = {"number", "select"}
 
 
+def is_scanner_tracker(row: dict[str, Any]) -> bool:
+    """A device tracker a network scanner made, as its registry row describes it."""
+    return str(row.get("entity_id", "")).startswith("device_tracker.") and row.get("disabled_by") == "integration"
+
+
 def tracker_from_state(row: dict[str, Any]) -> Tracker | None:
     """The tracker a person.* or device_tracker.* state describes; None for anything else."""
     entity_id = row.get("entity_id", "")
@@ -164,10 +169,14 @@ class HaClient:
         # The devices behind the last fetched entity list; sent alongside it.
         self.devices: list[DeviceRef] = []
         self._connect_lock = asyncio.Lock()
+        # Tasks the reader starts and must not await, kept so they are not collected mid-flight.
+        self._background: set[asyncio.Task[None]] = set()
         self._ha_version: str | None = None
         # Seed the state_changed subscription so every (re)connect re-subscribes automatically,
         # without a separate startup connect step. connect() replays this set after auth.
-        self._subscribed_event_types: set[str] = {"state_changed"} if on_event is not None else set()
+        self._subscribed_event_types: set[str] = (
+            {"state_changed", "entity_registry_updated"} if on_event is not None else set()
+        )
         # Subscription id -> queue of event frames for that subscription (None = drain and drop).
         # Used for camera/webrtc/offer, whose answer and candidates arrive as events.
         self._subscriptions: dict[int, asyncio.Queue[dict[str, Any]] | None] = {}
@@ -242,6 +251,7 @@ class HaClient:
                     continue
                 data = msg.json()
                 if data.get("type") == "event":
+                    self._watch_registry(data.get("event") or {})
                     sub_id = data.get("id")
                     if sub_id in self._subscriptions:
                         queue = self._subscriptions[sub_id]
@@ -433,15 +443,17 @@ class HaClient:
         registry_reply = await self._request({"type": "config/entity_registry/list"})
         registry_rows = registry_reply.get("result", []) or []
 
-        # Integrations ship some entities disabled (Reolink's charging state). Argus needs that
-        # one, so it is switched on here; HA creates the entity ~30 s later, after which a
-        # resync picks it up (pending_resync tells the caller to schedule one).
+        # Integrations ship some entities disabled (Reolink's charging state, and a network
+        # scanner's tracker for any device HA does not already know, which is every phone and
+        # visitor). Argus needs those, so they are switched on here; HA creates the entity ~30 s
+        # later, after which a resync picks it up (pending_resync tells the caller to schedule one).
+        # Only what the integration disabled is touched, never what someone switched off.
         to_enable = [
             row["entity_id"]
             for row in registry_rows
             if row.get("disabled_by") == "integration"
-            and row.get("translation_key") == BATTERY_STATE_TRANSLATION_KEY
             and row.get("entity_id")
+            and (row.get("translation_key") == BATTERY_STATE_TRANSLATION_KEY or is_scanner_tracker(row))
         ]
         for entity_id in to_enable:
             try:
@@ -598,8 +610,33 @@ class HaClient:
         return out
 
     async def subscribe_events(self) -> None:
-        self._subscribed_event_types.add("state_changed")
-        await self._send_subscribe("state_changed")
+        for event_type in ("state_changed", "entity_registry_updated"):
+            self._subscribed_event_types.add(event_type)
+            await self._send_subscribe(event_type)
+
+    def _watch_registry(self, event: dict[str, Any]) -> None:
+        """A network scanner makes a disabled tracker for each new device it sees; switch it on so
+        the owner's Wi-Fi list shows visitors too. Runs as a task, since the reader must not wait."""
+        if event.get("event_type") != "entity_registry_updated":
+            return
+        data = event.get("data") or {}
+        entity_id = data.get("entity_id")
+        if data.get("action") == "create" and isinstance(entity_id, str) and entity_id.startswith("device_tracker."):
+            task = asyncio.create_task(self._enable_new_tracker(entity_id))
+            self._background.add(task)
+            task.add_done_callback(self._background.discard)
+
+    async def _enable_new_tracker(self, entity_id: str) -> None:
+        try:
+            reply = await self._request({"type": "config/entity_registry/get", "entity_id": entity_id})
+            row = reply.get("result") or {}
+            if is_scanner_tracker(row):
+                await self._request(
+                    {"type": "config/entity_registry/update", "entity_id": entity_id, "disabled_by": None}
+                )
+                log.info("enabled new device tracker", entity_id=entity_id)
+        except Exception as exc:
+            log.warning("enable new device tracker failed", entity_id=entity_id, error=str(exc))
 
     async def call_service(self, domain: str, service: str, service_data: dict[str, Any]) -> dict[str, Any]:
         reply = await self._request(

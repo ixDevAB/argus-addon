@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+
+- A network scanner (Nmap Tracker, or a router integration) leaves a tracker switched off for every device Home Assistant did not already know, which is every phone. The add-on switches those on when it connects and as each new one appears, so the owner's Wi-Fi list shows visitors too. A tracker someone switched off stays off.
+
 ## 1.4.0
 
 - Argus learns who is home. The add-on sends Home Assistant's persons and device trackers (phones through the companion app, and devices your router reports) as presence: all of them when it connects, then each change of home, away or zone. Position updates are not sent. Needs backend 1.3.27 or later, where the household sees who is home and the owner sees what is on the Wi-Fi.

@@ -102,6 +102,9 @@ class HaMock:
                     if row.get("entity_id") == data.get("entity_id") and "disabled_by" in data:
                         row["disabled_by"] = data["disabled_by"]
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": {}})
+            elif kind == "config/entity_registry/get":
+                row = next((r for r in self.entities if r.get("entity_id") == data.get("entity_id")), None)
+                await ws.send_json({"id": msg_id, "type": "result", "success": row is not None, "result": row})
             elif kind == "config/device_registry/list":
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": list(self.devices)})
             elif kind == "get_states":
@@ -146,6 +149,13 @@ class HaMock:
             else:
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": None})
         return ws
+
+    async def push_event(self, event: dict[str, Any]) -> None:
+        async with self._lock:
+            targets = list(self._sockets)
+        for ws in targets:
+            if not ws.closed:
+                await ws.send_json({"type": "event", "event": event})
 
     async def push_state_event(self, entity_id: str, new_state: str) -> None:
         payload = {

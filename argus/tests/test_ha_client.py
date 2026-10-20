@@ -538,3 +538,45 @@ def test_tracker_from_state_reads_persons_and_device_trackers_only():
     assert router.name is None
     assert tracker_from_state({"entity_id": "binary_sensor.door", "state": "on"}) is None
     assert tracker_from_state({"entity_id": "person.nobody", "state": None}) is None
+
+
+async def test_scanner_trackers_the_integration_disabled_are_switched_on(ha_mock):
+    ha_mock.entities = [
+        {"entity_id": "device_tracker.nmap_phone", "platform": "nmap_tracker", "disabled_by": "integration"},
+        {"entity_id": "device_tracker.switched_off", "platform": "nmap_tracker", "disabled_by": "user"},
+        {"entity_id": "binary_sensor.door", "platform": "zha", "disabled_by": "integration", "device_class": "door"},
+    ]
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        await client.fetch_entities()
+        assert ha_mock.registry_updates == [{"entity_id": "device_tracker.nmap_phone", "disabled_by": None}]
+        assert client.pending_resync is True
+    finally:
+        await client.close()
+
+
+async def test_a_new_scanner_tracker_is_switched_on_when_ha_makes_it(ha_mock):
+    ha_mock.entities = [
+        {"entity_id": "device_tracker.visitor", "platform": "nmap_tracker", "disabled_by": "integration"},
+        {"entity_id": "device_tracker.kept_off", "platform": "nmap_tracker", "disabled_by": "user"},
+    ]
+
+    async def ignore(_data):
+        return None
+
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url, on_event=ignore)
+    await client.connect()
+    try:
+        for entity_id in ("device_tracker.visitor", "device_tracker.kept_off", "light.lamp"):
+            await ha_mock.push_event(
+                {"event_type": "entity_registry_updated", "data": {"action": "create", "entity_id": entity_id}}
+            )
+        for _ in range(50):
+            if ha_mock.registry_updates:
+                break
+            await asyncio.sleep(0.02)
+        await asyncio.sleep(0.1)
+        assert ha_mock.registry_updates == [{"entity_id": "device_tracker.visitor", "disabled_by": None}]
+    finally:
+        await client.close()
