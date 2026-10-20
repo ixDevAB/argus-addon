@@ -73,6 +73,26 @@ class StatesSnapshot(BaseModel):
     states: list[StateSnapshotItem]
 
 
+class Tracker(BaseModel):
+    """A person or a device tracker in Home Assistant: who is home, and which phones the router sees."""
+
+    entity_id: str
+    kind: Literal["person", "device_tracker"]
+    name: str | None = None
+    state: str
+    source_type: str | None = None
+    device_trackers: list[str] | None = None
+    changed_at: datetime
+
+
+class Presence(BaseModel):
+    """Every tracker when full, else the ones whose state just changed."""
+
+    type: Literal["presence"]
+    full: bool
+    trackers: list[Tracker]
+
+
 class Cmd(BaseModel):
     type: Literal["cmd"]
     id: str

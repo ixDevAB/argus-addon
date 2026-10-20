@@ -9,7 +9,16 @@ import structlog
 import websockets
 
 from argus_addon import __version__
-from argus_addon.envelope import Ack, Cmd, EntityList, EnvelopeAdapter, Hello, StateSnapshotItem, StatesSnapshot
+from argus_addon.envelope import (
+    Ack,
+    Cmd,
+    EntityList,
+    EnvelopeAdapter,
+    Hello,
+    Presence,
+    StateSnapshotItem,
+    StatesSnapshot,
+)
 from argus_addon.heartbeat import HEARTBEAT_INTERVAL, heartbeat
 from argus_addon.idempotency import Idempotency
 
@@ -207,6 +216,21 @@ async def _resync_after_ha_restore(ws, ha_client, *, timeout: float) -> None:
         await _send_states(ws, ha_client, timeout)
 
 
+async def _send_presence(ws, ha_client, timeout: float) -> None:
+    """Send every person and device tracker, so the cloud knows who is home at connect time.
+
+    Best-effort like the states snapshot: a failure is logged and the next sync tries again.
+    """
+    try:
+        trackers = await asyncio.wait_for(ha_client.fetch_trackers(), timeout)
+        await ws.send(Presence(type="presence", full=True, trackers=trackers).model_dump_json())
+        log.info("presence sent", count=len(trackers))
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        log.warning("presence snapshot failed", error=str(exc))
+
+
 async def _send_states(ws, ha_client, timeout: float) -> None:
     """Push a current-state snapshot so the cloud knows open/closed at connect time.
 
@@ -223,6 +247,7 @@ async def _send_states(ws, ha_client, timeout: float) -> None:
         raise
     except Exception as exc:
         log.warning("states snapshot failed", error=str(exc))
+    await _send_presence(ws, ha_client, timeout)
 
 
 async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency, *, talk=None, recorder=None) -> None:

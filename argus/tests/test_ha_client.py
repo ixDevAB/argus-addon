@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from argus_addon.ha_client import HaClient, merge_candidates
+from argus_addon.ha_client import HaClient, merge_candidates, tracker_from_state
 
 
 class _ClosingWs:
@@ -514,3 +514,27 @@ async def test_fetch_entities_syncs_battery_sensors_with_level_and_skips_other_s
         assert states["sensor.camera1_batteri"]["attributes"]["device_class"] == "battery"
     finally:
         await client.close()
+
+
+def test_tracker_from_state_reads_persons_and_device_trackers_only():
+    person = tracker_from_state(
+        {
+            "entity_id": "person.alexander",
+            "state": "home",
+            "attributes": {"friendly_name": "Alexander", "device_trackers": ["device_tracker.iphone", 7]},
+            "last_changed": "2026-10-20T07:00:00Z",
+        }
+    )
+    assert person is not None
+    assert person.kind == "person"
+    assert person.name == "Alexander"
+    assert person.device_trackers == ["device_tracker.iphone"]
+    assert person.changed_at.isoformat() == "2026-10-20T07:00:00+00:00"
+    router = tracker_from_state(
+        {"entity_id": "device_tracker.okand", "state": "home", "attributes": {"source_type": "router"}}
+    )
+    assert router is not None
+    assert router.source_type == "router"
+    assert router.name is None
+    assert tracker_from_state({"entity_id": "binary_sensor.door", "state": "on"}) is None
+    assert tracker_from_state({"entity_id": "person.nobody", "state": None}) is None

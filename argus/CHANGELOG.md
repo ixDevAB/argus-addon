@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0
+
+- Argus learns who is home. The add-on sends Home Assistant's persons and device trackers (phones through the companion app, and devices your router reports) as presence: all of them when it connects, then each change of home, away or zone. Position updates are not sent. Needs backend 1.3.27 or later, where the household sees who is home and the owner sees what is on the Wi-Fi.
+
 ## 1.3.1
 
 - The pairing page has a Copy code button, and the code's expiry shows as a time in your own time zone instead of a raw UTC timestamp.

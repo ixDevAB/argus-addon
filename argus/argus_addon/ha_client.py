@@ -1,12 +1,13 @@
 import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import aiohttp
 import structlog
 
-from argus_addon.envelope import DeviceRef, EntityRef
+from argus_addon.envelope import DeviceRef, EntityRef, Tracker
 
 log = structlog.get_logger(__name__)
 
@@ -23,6 +24,10 @@ RECONNECT_MAX_S = 30.0
 # sources; their state carries availability). Argus decides which to surface/hide
 # downstream; the add-on is a dumb pipe.
 SYNCED_DOMAINS = {"binary_sensor", "switch", "siren", "light", "camera"}
+
+# Who is home: HA's persons, and the device trackers behind them and the router's Wi-Fi list.
+# They travel as presence frames, never as sensor states.
+PRESENCE_DOMAINS = {"person", "device_tracker"}
 
 # Battery levels for devices whose battery is its own entity (Reolink cameras report
 # sensor.<cam>_batteri). Only sensor.* rows with this device_class are synced; the sensor
@@ -61,6 +66,35 @@ WEBRTC_ANSWER_TIMEOUT = 25.0
 # entity_list with their current value + bounds/options and device grouping, but NOT
 # streamed as live state events — Argus reads them on demand / at resync.
 CONFIG_DOMAINS = {"number", "select"}
+
+
+def tracker_from_state(row: dict[str, Any]) -> Tracker | None:
+    """The tracker a person.* or device_tracker.* state describes; None for anything else."""
+    entity_id = row.get("entity_id", "")
+    kind = entity_id.split(".", 1)[0] if "." in entity_id else ""
+    state = row.get("state")
+    if kind not in PRESENCE_DOMAINS or not isinstance(state, str):
+        return None
+    attrs = row.get("attributes") or {}
+    changed = row.get("last_changed") or row.get("last_updated")
+    try:
+        changed_at = (
+            datetime.fromisoformat(changed.replace("Z", "+00:00")) if isinstance(changed, str) else datetime.now(UTC)
+        )
+    except ValueError:
+        changed_at = datetime.now(UTC)
+    trackers = attrs.get("device_trackers")
+    name = attrs.get("friendly_name")
+    source = attrs.get("source_type")
+    return Tracker(
+        entity_id=entity_id,
+        kind=kind,
+        name=name if isinstance(name, str) else None,
+        state=state,
+        source_type=source if isinstance(source, str) else None,
+        device_trackers=[t for t in trackers if isinstance(t, str)] if isinstance(trackers, list) else None,
+        changed_at=changed_at,
+    )
 
 
 def merge_candidates(sdp: str, candidates: list[dict[str, Any]]) -> str:
@@ -552,6 +586,15 @@ class HaClient:
                 continue
             attrs = {k: v for k, v in raw_attrs.items() if k in {"battery_level", "device_class", "friendly_name"}}
             out.append({"entity_id": entity_id, "state": state, "attributes": attrs})
+        return out
+
+    async def fetch_trackers(self) -> list[Tracker]:
+        reply = await self._request({"type": "get_states"})
+        out: list[Tracker] = []
+        for srow in reply.get("result", []) or []:
+            tracker = tracker_from_state(srow)
+            if tracker is not None:
+                out.append(tracker)
         return out
 
     async def subscribe_events(self) -> None:

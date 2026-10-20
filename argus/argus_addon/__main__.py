@@ -11,8 +11,14 @@ from aiohttp import web
 
 from argus_addon import ingress, pair_client, ws_client
 from argus_addon.clips import DEFAULT_SPOOL_BYTES, ClipRecorder, Spool
-from argus_addon.envelope import State
-from argus_addon.ha_client import HaClient, is_battery_sensor, is_battery_state_sensor
+from argus_addon.envelope import Presence, State
+from argus_addon.ha_client import (
+    PRESENCE_DOMAINS,
+    HaClient,
+    is_battery_sensor,
+    is_battery_state_sensor,
+    tracker_from_state,
+)
 from argus_addon.idempotency import Idempotency
 from argus_addon.pair_client import CodeHolder
 from argus_addon.talk import Go2rtc, TalkConfig, TalkService
@@ -54,6 +60,16 @@ def _build_state_forwarder(send_queue: asyncio.Queue):
         if not entity_id or state_value is None:
             return
         domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
+        if domain in PRESENCE_DOMAINS:
+            # A phone's GPS position updates its attributes every few seconds; only a change of
+            # home, away or zone is news.
+            old_state = event_data.get("old_state") or {}
+            if old_state.get("state") == state_value:
+                return
+            tracker = tracker_from_state(new_state)
+            if tracker is not None:
+                await send_queue.put(Presence(type="presence", full=False, trackers=[tracker]))
+            return
         raw_attrs = new_state.get("attributes") or {}
         # number and select carry camera settings (PIR sensitivity, day/night mode); the cloud
         # mirrors them so the app shows what the camera actually holds.

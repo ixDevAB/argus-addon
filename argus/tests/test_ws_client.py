@@ -12,6 +12,7 @@ class FakeHaClient:
         self._version = "2026.5.0"
         self.entities: list = []
         self.states: list = []
+        self.trackers: list = []
         self.link_restored = asyncio.Event()
 
     def version(self) -> str:
@@ -22,6 +23,9 @@ class FakeHaClient:
 
     async def fetch_states(self):
         return list(self.states)
+
+    async def fetch_trackers(self):
+        return list(self.trackers)
 
     async def call_service(self, domain, service, service_data):
         self.calls.append({"domain": domain, "service": service, "service_data": service_data})
@@ -244,6 +248,32 @@ async def test_states_snapshot_sent_on_connect(cloud_mock, tmp_path):
         env = await cloud_mock.wait_for(lambda e: e.get("type") == "states", timeout=3.0)
         assert env["states"][0]["entity_id"] == "binary_sensor.altandorr"
         assert env["states"][0]["state"] == "on"
+    finally:
+        await _stop(task, stop)
+
+
+async def test_presence_sent_in_full_on_connect(cloud_mock, tmp_path):
+    from datetime import UTC, datetime
+
+    from argus_addon.envelope import Tracker
+
+    ha = FakeHaClient()
+    ha.trackers = [
+        Tracker(
+            entity_id="person.alexander",
+            kind="person",
+            name="Alexander",
+            state="home",
+            device_trackers=["device_tracker.alexanders_iphone"],
+            changed_at=datetime(2026, 10, 20, 7, 0, tzinfo=UTC),
+        )
+    ]
+    task, ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path, ha_client=ha)
+    try:
+        env = await cloud_mock.wait_for(lambda e: e.get("type") == "presence", timeout=3.0)
+        assert env["full"] is True
+        assert env["trackers"][0]["entity_id"] == "person.alexander"
+        assert env["trackers"][0]["device_trackers"] == ["device_tracker.alexanders_iphone"]
     finally:
         await _stop(task, stop)
 
@@ -501,3 +531,40 @@ async def test_a_failure_without_a_message_still_acks_a_reason(cloud_mock, tmp_p
         assert ack["result"] is None
     finally:
         await _stop(task, stop)
+
+
+def _presence_event(entity_id, old, new, attributes):
+    return {
+        "type": "event",
+        "event": {
+            "event_type": "state_changed",
+            "data": {
+                "entity_id": entity_id,
+                "old_state": {"entity_id": entity_id, "state": old, "attributes": attributes},
+                "new_state": {
+                    "entity_id": entity_id,
+                    "state": new,
+                    "attributes": attributes,
+                    "last_changed": "2026-10-20T07:00:00+00:00",
+                },
+            },
+        },
+    }
+
+
+async def test_state_forwarder_sends_presence_changes_and_skips_position_updates():
+    from argus_addon.__main__ import _build_state_forwarder
+
+    queue: asyncio.Queue = asyncio.Queue()
+    forward = _build_state_forwarder(queue)
+    phone = {"friendly_name": "Alexanders iPhone", "source_type": "router"}
+    await forward(_presence_event("device_tracker.alexanders_iphone", "home", "home", {**phone, "latitude": 59.3}))
+    assert queue.empty()
+    await forward(_presence_event("device_tracker.alexanders_iphone", "home", "not_home", phone))
+    sent = queue.get_nowait()
+    assert sent.type == "presence"
+    assert sent.full is False
+    assert sent.trackers[0].kind == "device_tracker"
+    assert sent.trackers[0].state == "not_home"
+    assert sent.trackers[0].source_type == "router"
+    assert sent.trackers[0].name == "Alexanders iPhone"
