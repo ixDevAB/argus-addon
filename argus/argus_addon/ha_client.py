@@ -91,6 +91,7 @@ def tracker_from_state(row: dict[str, Any]) -> Tracker | None:
     trackers = attrs.get("device_trackers")
     name = attrs.get("friendly_name")
     source = attrs.get("source_type")
+    mac = attrs.get("mac")
     return Tracker(
         entity_id=entity_id,
         kind=kind,
@@ -98,6 +99,7 @@ def tracker_from_state(row: dict[str, Any]) -> Tracker | None:
         state=state,
         source_type=source if isinstance(source, str) else None,
         device_trackers=[t for t in trackers if isinstance(t, str)] if isinstance(trackers, list) else None,
+        mac=mac.upper() if isinstance(mac, str) and mac else None,
         changed_at=changed_at,
     )
 

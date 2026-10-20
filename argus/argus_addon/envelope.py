@@ -82,6 +82,8 @@ class Tracker(BaseModel):
     state: str
     source_type: str | None = None
     device_trackers: list[str] | None = None
+    # The network address a scanner or router reports, upper case; None for a phone's app tracker.
+    mac: str | None = None
     changed_at: datetime
 
 

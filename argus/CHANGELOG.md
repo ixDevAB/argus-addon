@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.2
+
+- Presence carries the MAC address a network scanner or router reports for each device, so the owner can tell devices apart on the Wi-Fi list. Needs backend 1.4.5 or later.
+
 ## 1.4.1
 
 - A network scanner (Nmap Tracker, or a router integration) leaves a tracker switched off for every device Home Assistant did not already know, which is every phone. The add-on switches those on when it connects and as each new one appears, so the owner's Wi-Fi list shows visitors too. A tracker someone switched off stays off.

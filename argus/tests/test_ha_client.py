@@ -531,10 +531,16 @@ def test_tracker_from_state_reads_persons_and_device_trackers_only():
     assert person.device_trackers == ["device_tracker.iphone"]
     assert person.changed_at.isoformat() == "2026-10-20T07:00:00+00:00"
     router = tracker_from_state(
-        {"entity_id": "device_tracker.okand", "state": "home", "attributes": {"source_type": "router"}}
+        {
+            "entity_id": "device_tracker.okand",
+            "state": "home",
+            "attributes": {"source_type": "router", "mac": "1a:e8:29:53:59:3a"},
+        }
     )
     assert router is not None
     assert router.source_type == "router"
+    assert router.mac == "1A:E8:29:53:59:3A"
+    assert person.mac is None
     assert router.name is None
     assert tracker_from_state({"entity_id": "binary_sensor.door", "state": "on"}) is None
     assert tracker_from_state({"entity_id": "person.nobody", "state": None}) is None
