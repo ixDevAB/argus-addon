@@ -33,6 +33,9 @@ class EntityRef(BaseModel):
     # localized entity_ids, so the cloud tells them apart by translation_key.
     platform: str | None = None
     translation_key: str | None = None
+    # The owning integration's iot_class from its manifest (cloud_push, local_polling, ...). A
+    # cloud device can be reported by more than one home, a local one is in the home that sees it.
+    iot_class: str | None = None
 
 
 class DeviceRef(BaseModel):

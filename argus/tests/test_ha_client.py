@@ -162,6 +162,24 @@ async def test_fetch_forwards_platform_and_translation_key(ha_mock):
         await client.close()
 
 
+async def test_fetch_forwards_each_integrations_iot_class(ha_mock):
+    ha_mock.iot_classes = {"yale": "cloud_push", "matter": "local_push"}
+    ha_mock.entities = [
+        {"entity_id": "binary_sensor.ytterdorr_dorr", "device_class": "door", "platform": "yale"},
+        {"entity_id": "binary_sensor.hall_ingang_dorr", "device_class": "door", "platform": "matter"},
+        {"entity_id": "binary_sensor.hall_pir", "device_class": "motion", "platform": "custom_thing"},
+    ]
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        entities = {e.entity_id: e for e in await client.fetch_entities()}
+        assert entities["binary_sensor.ytterdorr_dorr"].iot_class == "cloud_push"
+        assert entities["binary_sensor.hall_ingang_dorr"].iot_class == "local_push"
+        assert entities["binary_sensor.hall_pir"].iot_class is None
+    finally:
+        await client.close()
+
+
 async def test_fetch_syncs_charging_state_and_enables_it_when_integration_disabled(ha_mock):
     ha_mock.devices = [{"id": "dev-front", "name": "Framsidan", "name_by_user": None, "area_id": None}]
     ha_mock.entities = [

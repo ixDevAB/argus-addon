@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.0
+
+- Each entity carries its integration's iot_class from Home Assistant's manifest, so Argus can tell a cloud device (a Yale lock on an account several homes share) from one in the house. Needs backend 1.9.0 or later.
+
 ## 1.8.0
 
 - Every minute the add-on sweeps the home's own network (one empty datagram to each address, so the kernel asks each by ARP) and sends which devices answered and when. Argus keeps those sightings and dates a phone's departure by the last one. The image now carries iproute2. Needs backend 1.8.0 or later.

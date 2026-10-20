@@ -531,6 +531,16 @@ class HaClient:
         except Exception as exc:
             log.warning("area_registry fetch failed", error=str(exc))
 
+        platforms = sorted({row["platform"] for row in registry_rows if isinstance(row.get("platform"), str)})
+        iot_class: dict[str, str] = {}
+        try:
+            manifest_reply = await self._request({"type": "manifest/list", "integrations": platforms})
+            for mrow in manifest_reply.get("result", []) or []:
+                if isinstance(mrow.get("domain"), str) and isinstance(mrow.get("iot_class"), str):
+                    iot_class[mrow["domain"]] = mrow["iot_class"]
+        except Exception as exc:
+            log.warning("manifest fetch failed", error=str(exc))
+
         states_by_id: dict[str, dict[str, Any]] = {}
         try:
             states_reply = await self._request({"type": "get_states"})
@@ -596,6 +606,7 @@ class HaClient:
                     attributes=config_attributes or None,
                     platform=row.get("platform"),
                     translation_key=translation_key,
+                    iot_class=iot_class.get(row.get("platform") or ""),
                 )
             )
         # The units behind those entities, plus the hubs they hang off, so the app can show a

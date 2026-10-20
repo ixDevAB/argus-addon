@@ -36,6 +36,8 @@ class HaMock:
         self.history_requests: list[dict[str, Any]] = []
         # device_registry rows: [{"id","name","name_by_user","area_id"}, ...]
         self.devices: list[dict[str, Any]] = []
+        # integration domain -> iot_class; served by manifest/list.
+        self.iot_classes: dict[str, str] = {"zha": "local_push", "hue": "local_push", "reolink": "local_push"}
         self.service_calls: list[dict[str, Any]] = []
         # config/entity_registry/update payloads, in order.
         self.registry_updates: list[dict[str, Any]] = []
@@ -110,6 +112,10 @@ class HaMock:
                 await ws.send_json({"id": msg_id, "type": "result", "success": row is not None, "result": row})
             elif kind == "config/device_registry/list":
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": list(self.devices)})
+            elif kind == "manifest/list":
+                wanted = data.get("integrations") or list(self.iot_classes)
+                result = [{"domain": d, "iot_class": self.iot_classes[d]} for d in wanted if d in self.iot_classes]
+                await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": result})
             elif kind == "get_states":
                 result = [
                     {"entity_id": eid, "state": s.get("state"), "attributes": s.get("attributes", {})}
