@@ -2,6 +2,7 @@ import asyncio
 import json
 import random
 import ssl
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,12 @@ from argus_addon.idempotency import Idempotency
 
 log = structlog.get_logger(__name__)
 
+
+# Home Assistant's own record of who came and went is replayed to the cloud: a day of it on connect,
+# the last two hours every ten minutes, so a change the cloud missed or dated late is put right.
+REPLAY_ON_CONNECT = timedelta(hours=24)
+REPLAY_WINDOW = timedelta(hours=2)
+REPLAY_EVERY_S = 600.0
 
 INITIAL_BACKOFF = 1.0
 MAX_BACKOFF = 30.0
@@ -105,6 +112,7 @@ async def run(
                 restore_task = asyncio.create_task(
                     _resync_after_ha_restore(ws, ha_client, timeout=entity_fetch_timeout)
                 )
+                replay_task = asyncio.create_task(_replay_loop(ws, ha_client, timeout=entity_fetch_timeout))
                 background: set[asyncio.Task[None]] = set()
                 try:
                     async for raw in ws:
@@ -137,6 +145,7 @@ async def run(
                     send_task.cancel()
                     entity_task.cancel()
                     restore_task.cancel()
+                    replay_task.cancel()
                     for task in background:
                         task.cancel()
             attempt += 1
@@ -229,6 +238,29 @@ async def _send_presence(ws, ha_client, timeout: float) -> None:
         raise
     except Exception as exc:
         log.warning("presence snapshot failed", error=str(exc))
+        return
+    await _send_replay(ws, ha_client, timeout, REPLAY_ON_CONNECT)
+
+
+async def _send_replay(ws, ha_client, timeout: float, window: timedelta) -> None:
+    """Send Home Assistant's record of every person's and device's comings and goings over the
+    window. Best-effort: a failure is logged and the next replay covers it."""
+    try:
+        since = datetime.now(UTC) - window
+        trackers = await asyncio.wait_for(ha_client.fetch_trackers(), timeout)
+        changes = await asyncio.wait_for(ha_client.fetch_tracker_history(since, trackers), timeout * 6)
+        await ws.send(Presence(type="presence", full=False, trackers=changes, replay_from=since).model_dump_json())
+        log.info("presence replay sent", count=len(changes), hours=window.total_seconds() / 3600)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        log.warning("presence replay failed", error=str(exc))
+
+
+async def _replay_loop(ws, ha_client, *, timeout: float) -> None:
+    while True:
+        await asyncio.sleep(REPLAY_EVERY_S)
+        await _send_replay(ws, ha_client, timeout, REPLAY_WINDOW)
 
 
 async def _send_states(ws, ha_client, timeout: float) -> None:

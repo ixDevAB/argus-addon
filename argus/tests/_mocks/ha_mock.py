@@ -31,6 +31,9 @@ class HaMock:
         self.entities = entities if entities is not None else list(DEFAULT_ENTITIES)
         # entity_id -> {"state": str, "attributes": {...}}; served by get_states.
         self.states: dict[str, dict[str, Any]] = {}
+        # entity_id -> compressed history rows ({"s", "lu", "lc"}); served by history/history_during_period.
+        self.history: dict[str, list[dict[str, Any]]] = {}
+        self.history_requests: list[dict[str, Any]] = []
         # device_registry rows: [{"id","name","name_by_user","area_id"}, ...]
         self.devices: list[dict[str, Any]] = []
         self.service_calls: list[dict[str, Any]] = []
@@ -112,6 +115,10 @@ class HaMock:
                     {"entity_id": eid, "state": s.get("state"), "attributes": s.get("attributes", {})}
                     for eid, s in self.states.items()
                 ]
+                await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": result})
+            elif kind == "history/history_during_period":
+                self.history_requests.append({k: v for k, v in data.items() if k not in ("id", "type")})
+                result = {eid: self.history[eid] for eid in data.get("entity_ids", []) if eid in self.history}
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": result})
             elif kind == "subscribe_events":
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": None})

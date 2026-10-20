@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from argus_addon.ha_client import HaClient, merge_candidates, tracker_from_state
+from argus_addon.ha_client import HaClient, history_changes, merge_candidates, tracker_from_state
 
 
 class _ClosingWs:
@@ -601,5 +601,84 @@ async def test_a_new_scanner_tracker_is_switched_on_when_ha_makes_it(ha_mock):
             await asyncio.sleep(0.02)
         await asyncio.sleep(0.1)
         assert ha_mock.registry_updates == [{"entity_id": "device_tracker.visitor", "disabled_by": None}]
+    finally:
+        await client.close()
+
+
+def _ts(hh, mm, ss=0):
+    from datetime import UTC, datetime
+
+    return datetime(2026, 10, 20, hh - 2, mm, ss, tzinfo=UTC).timestamp()
+
+
+def _since():
+    from datetime import UTC, datetime
+
+    return datetime(2026, 10, 20, 4, 0, tzinfo=UTC)
+
+
+def test_a_scanned_phone_left_when_a_scan_last_reached_it():
+    phone = tracker_from_state(
+        {"entity_id": "device_tracker.apple_64_e3_d0", "state": "unavailable", "attributes": {"source_type": "router"}}
+    )
+    rows = [
+        {"s": "home", "lu": _ts(6, 0)},
+        {"s": "home", "lu": _ts(18, 36, 30)},
+        {"s": "unavailable", "lu": _ts(18, 36, 31)},
+        {"s": "home", "lu": _ts(18, 36, 36)},
+        {"s": "home", "lu": _ts(18, 40, 50)},
+        {"s": "not_home", "lu": _ts(19, 14, 35)},
+        {"s": "unavailable", "lu": _ts(20, 11, 5)},
+    ]
+    got = history_changes(phone, rows, _since())
+    assert [
+        (t.state, t.changed_at.isoformat(), t.last_seen_at.isoformat() if t.last_seen_at else None) for t in got
+    ] == [
+        ("not_home", "2026-10-20T17:14:35+00:00", "2026-10-20T16:40:50+00:00"),
+    ], "the state at the start is no news, unavailable is nothing, and gone is dated by the last scan"
+    newcomer = history_changes(phone, [{"s": "home", "lu": _ts(9, 30)}], _since())
+    assert [(t.state, t.changed_at.strftime("%H:%M")) for t in newcomer] == [("home", "07:30")], (
+        "a device first seen after the start came"
+    )
+
+
+def test_a_location_comes_and_goes_as_it_says():
+    app = tracker_from_state(
+        {"entity_id": "device_tracker.alexanders_iphone", "state": "not_home", "attributes": {"source_type": "gps"}}
+    )
+    rows = [
+        {"s": "not_home", "lu": _ts(6, 0)},
+        {"s": "home", "lu": _ts(18, 38, 33)},
+        {"s": "not_home", "lu": _ts(18, 43, 28)},
+        {"s": "home", "lu": _ts(19, 59, 11)},
+        {"s": "not_home", "lu": _ts(20, 2, 55)},
+    ]
+    got = history_changes(app, rows, _since())
+    assert [(t.state, t.changed_at.strftime("%H:%M:%S"), t.last_seen_at) for t in got] == [
+        ("home", "16:38:33", None),
+        ("not_home", "16:43:28", None),
+        ("home", "17:59:11", None),
+        ("not_home", "18:02:55", None),
+    ]
+
+
+async def test_the_history_of_every_tracker_comes_back_oldest_first(ha_mock):
+    ha_mock.history = {
+        "device_tracker.phone": [{"s": "home", "lu": _ts(6, 0)}, {"s": "not_home", "lu": _ts(19, 0)}],
+        "person.milli": [{"s": "home", "lu": _ts(6, 0)}, {"s": "not_home", "lu": _ts(18, 44)}],
+    }
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        trackers = [
+            tracker_from_state(
+                {"entity_id": "device_tracker.phone", "state": "not_home", "attributes": {"source_type": "router"}}
+            ),
+            tracker_from_state({"entity_id": "person.milli", "state": "not_home", "attributes": {}}),
+        ]
+        got = await client.fetch_tracker_history(_since(), trackers)
+        assert [t.entity_id for t in got] == ["person.milli", "device_tracker.phone"]
+        assert ha_mock.history_requests[0]["entity_ids"] == ["device_tracker.phone"]
+        assert ha_mock.history_requests[0]["no_attributes"] is True
     finally:
         await client.close()

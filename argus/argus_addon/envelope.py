@@ -91,11 +91,17 @@ class Tracker(BaseModel):
 
 
 class Presence(BaseModel):
-    """Every tracker when full, else the ones whose state just changed."""
+    """Every tracker when full, else the ones whose state just changed.
+
+    A replay carries replay_from: trackers are then every change of the listed trackers since that
+    moment, oldest first, from Home Assistant's own history, and the cloud takes them as the record
+    of that period, so a change it missed or dated late is put right.
+    """
 
     type: Literal["presence"]
     full: bool
     trackers: list[Tracker]
+    replay_from: datetime | None = None
 
 
 class Cmd(BaseModel):
