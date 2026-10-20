@@ -546,6 +546,23 @@ def test_tracker_from_state_reads_persons_and_device_trackers_only():
     assert tracker_from_state({"entity_id": "person.nobody", "state": None}) is None
 
 
+def test_tracker_from_state_keeps_when_a_scanner_last_reached_the_device():
+    def gone(reachable):
+        return tracker_from_state(
+            {
+                "entity_id": "device_tracker.milli",
+                "state": "not_home",
+                "attributes": {"source_type": "router", "last_time_reachable": reachable},
+                "last_changed": "2026-10-20T17:02:00+00:00",
+            }
+        )
+
+    assert gone("2026-10-20T18:30:12+02:00").last_seen_at.isoformat() == "2026-10-20T18:30:12+02:00"
+    assert gone("2026-10-20T18:30:12").last_seen_at is None, "a time without a zone is not trusted"
+    assert gone("soon").last_seen_at is None
+    assert gone(None).last_seen_at is None
+
+
 async def test_scanner_trackers_the_integration_disabled_are_switched_on(ha_mock):
     ha_mock.entities = [
         {"entity_id": "device_tracker.nmap_phone", "platform": "nmap_tracker", "disabled_by": "integration"},

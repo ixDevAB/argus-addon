@@ -85,6 +85,9 @@ class Tracker(BaseModel):
     # The network address a scanner or router reports, upper case; None for a phone's app tracker.
     mac: str | None = None
     changed_at: datetime
+    # When a network scanner last reached the device; its "gone" comes only after consider_home,
+    # so this is when it really left. None when the tracker does not say.
+    last_seen_at: datetime | None = None
 
 
 class Presence(BaseModel):

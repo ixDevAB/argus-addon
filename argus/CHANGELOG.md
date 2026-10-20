@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0
+
+- Each tracker carries when a network scanner last reached the device. A scanner reports a phone gone only after its grace period (consider_home), so Argus now dates a departure when the phone really left and can match it to the door that opened. Needs backend 1.5.0 or later.
+
 ## 1.4.2
 
 - Presence carries the MAC address a network scanner or router reports for each device, so the owner can tell devices apart on the Wi-Fi list. Needs backend 1.4.5 or later.

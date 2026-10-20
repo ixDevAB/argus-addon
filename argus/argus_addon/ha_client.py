@@ -73,6 +73,17 @@ def is_scanner_tracker(row: dict[str, Any]) -> bool:
     return str(row.get("entity_id", "")).startswith("device_tracker.") and row.get("disabled_by") == "integration"
 
 
+def _aware(text: Any) -> datetime | None:
+    """An ISO time with its offset; None for anything else, since a time without a zone is a guess."""
+    if not isinstance(text, str):
+        return None
+    try:
+        at = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return at if at.tzinfo is not None else None
+
+
 def tracker_from_state(row: dict[str, Any]) -> Tracker | None:
     """The tracker a person.* or device_tracker.* state describes; None for anything else."""
     entity_id = row.get("entity_id", "")
@@ -101,6 +112,7 @@ def tracker_from_state(row: dict[str, Any]) -> Tracker | None:
         device_trackers=[t for t in trackers if isinstance(t, str)] if isinstance(trackers, list) else None,
         mac=mac.upper() if isinstance(mac, str) and mac else None,
         changed_at=changed_at,
+        last_seen_at=_aware(attrs.get("last_time_reachable")),
     )
 
 
