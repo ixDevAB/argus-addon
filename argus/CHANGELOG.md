@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.0
+
+- Every minute the add-on sweeps the home's own network (one empty datagram to each address, so the kernel asks each by ARP) and sends which devices answered and when. Argus keeps those sightings and dates a phone's departure by the last one. The image now carries iproute2. Needs backend 1.8.0 or later.
+
 ## 1.7.0
 
 - The replay asks Home Assistant for its full history rows, whose departure row carries when a scan last reached the device, so a phone that went unavailable after a scanner reload is still dated right.

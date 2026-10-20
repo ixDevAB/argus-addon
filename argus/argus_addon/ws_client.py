@@ -17,11 +17,13 @@ from argus_addon.envelope import (
     EnvelopeAdapter,
     Hello,
     Presence,
+    Sightings,
     StateSnapshotItem,
     StatesSnapshot,
 )
 from argus_addon.heartbeat import HEARTBEAT_INTERVAL, heartbeat
 from argus_addon.idempotency import Idempotency
+from argus_addon.sightings import SWEEP_EVERY_S, sweep
 
 log = structlog.get_logger(__name__)
 
@@ -113,6 +115,7 @@ async def run(
                     _resync_after_ha_restore(ws, ha_client, timeout=entity_fetch_timeout)
                 )
                 replay_task = asyncio.create_task(_replay_loop(ws, ha_client, timeout=entity_fetch_timeout))
+                sightings_task = asyncio.create_task(_sightings_loop(ws))
                 background: set[asyncio.Task[None]] = set()
                 try:
                     async for raw in ws:
@@ -146,6 +149,7 @@ async def run(
                     entity_task.cancel()
                     restore_task.cancel()
                     replay_task.cancel()
+                    sightings_task.cancel()
                     for task in background:
                         task.cancel()
             attempt += 1
@@ -255,6 +259,20 @@ async def _send_replay(ws, ha_client, timeout: float, window: timedelta) -> None
         raise
     except Exception as exc:
         log.warning("presence replay failed", error=str(exc))
+
+
+async def _sightings_loop(ws, sweeper=sweep, every: float = SWEEP_EVERY_S) -> None:
+    """Sweep the home's network every minute and send who answered. A failed sweep is logged and
+    the next one tries again."""
+    while True:
+        try:
+            seen = await sweeper()
+            await ws.send(Sightings(type="sightings", devices=seen).model_dump_json())
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("sightings sweep failed", error=str(exc))
+        await asyncio.sleep(every)
 
 
 async def _replay_loop(ws, ha_client, *, timeout: float) -> None:

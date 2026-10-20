@@ -4,7 +4,8 @@ FROM $BUILD_FROM
 # go2rtc carries push-to-talk: the hub's RTSP with its return channel, which Home Assistant's own
 # go2rtc never asks for. Pinned to the release the backchannel was verified against.
 ARG GO2RTC_VERSION=1.9.14
-RUN apk add --no-cache curl \
+# iproute2: the per-minute sightings read the neighbour table as JSON, which busybox's ip cannot.
+RUN apk add --no-cache curl iproute2 \
     && case "$(uname -m)" in \
          x86_64) go2rtc_arch=amd64 ;; \
          aarch64) go2rtc_arch=arm64 ;; \

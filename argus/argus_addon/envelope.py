@@ -104,6 +104,21 @@ class Presence(BaseModel):
     replay_from: datetime | None = None
 
 
+class Sighting(BaseModel):
+    """A device that answered on the home's network, and when it last did."""
+
+    mac: str
+    ip: str
+    at: datetime
+
+
+class Sightings(BaseModel):
+    """Every device that answered one sweep of the home's network."""
+
+    type: Literal["sightings"]
+    devices: list[Sighting]
+
+
 class Cmd(BaseModel):
     type: Literal["cmd"]
     id: str
