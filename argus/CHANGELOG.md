@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.12.0
+
+- Sends the home's locks and each change of them with who the lock says turned it, a code's or app user's name or how it was turned, so Argus can tell an unlock in the activity and date someone's arrival by their own code. Needs backend 1.12.0 or later.
+
 ## 1.11.0
 
 - Sends the device buttons (a smoke alarm's self-test, a camera's pre-siren), each siren's supported features and the value of each setting switch, so Argus can set a siren on its unit, stop it after its time and leave alone one Home Assistant cannot turn off. Needs backend 1.11.0 or later.
