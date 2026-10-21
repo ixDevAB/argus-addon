@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.11.0
+
+- Sends the device buttons (a smoke alarm's self-test, a camera's pre-siren), each siren's supported features and the value of each setting switch, so Argus can set a siren on its unit, stop it after its time and leave alone one Home Assistant cannot turn off. Needs backend 1.11.0 or later.
+
 ## 1.10.0
 
 - Every scan that reaches a phone at home is sent as a sighting, and each presence replay sends the scanner's stretches from Home Assistant's history, one sighting from first scan to last. A walk out the door shorter than the scanner's half hour of grace now shows as a gap, even where the network sweep missed a sleeping phone. Needs backend 1.10.0 or later.
