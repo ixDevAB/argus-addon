@@ -568,3 +568,34 @@ async def test_state_forwarder_sends_presence_changes_and_skips_position_updates
     assert sent.trackers[0].state == "not_home"
     assert sent.trackers[0].source_type == "router"
     assert sent.trackers[0].name == "Alexanders iPhone"
+
+
+async def test_each_scan_that_reaches_a_phone_at_home_is_a_sighting():
+    from argus_addon.__main__ import _build_state_forwarder
+
+    queue: asyncio.Queue = asyncio.Queue()
+    forward = _build_state_forwarder(queue)
+    phone = {"source_type": "router", "mac": "56:c9:55:3e:5b:be", "ip": "192.168.184.175"}
+    event = _presence_event(
+        "device_tracker.nmap_tracker_56_c9_55_3e_5b_be",
+        "home",
+        "home",
+        {**phone, "last_time_reachable": "2026-10-21T14:44:24+02:00"},
+    )
+    event["event"]["data"]["old_state"]["attributes"] = {**phone, "last_time_reachable": "2026-10-21T14:42:23+02:00"}
+    await forward(event)
+    sent = queue.get_nowait()
+    assert sent.type == "sightings"
+    assert [(s.mac, s.ip, s.at.isoformat()) for s in sent.devices] == [
+        ("56:C9:55:3E:5B:BE", "192.168.184.175", "2026-10-21T12:44:24+00:00")
+    ]
+    assert queue.empty(), "the same state is no presence news"
+    away = _presence_event(
+        "device_tracker.nmap_tracker_56_c9_55_3e_5b_be",
+        "home",
+        "not_home",
+        {**phone, "last_time_reachable": "2026-10-21T14:44:24+02:00"},
+    )
+    await forward(away)
+    assert queue.get_nowait().type == "presence", "gone is no sighting"
+    assert queue.empty()

@@ -33,6 +33,8 @@ log = structlog.get_logger(__name__)
 REPLAY_ON_CONNECT = timedelta(hours=24)
 REPLAY_WINDOW = timedelta(hours=2)
 REPLAY_EVERY_S = 600.0
+# How many sightings one frame carries; the cloud takes up to 1024.
+SIGHTINGS_PER_FRAME = 500
 
 INITIAL_BACKOFF = 1.0
 MAX_BACKOFF = 30.0
@@ -252,9 +254,13 @@ async def _send_replay(ws, ha_client, timeout: float, window: timedelta) -> None
     try:
         since = datetime.now(UTC) - window
         trackers = await asyncio.wait_for(ha_client.fetch_trackers(), timeout)
-        changes = await asyncio.wait_for(ha_client.fetch_tracker_history(since, trackers), timeout * 6)
+        changes, reaches = await asyncio.wait_for(ha_client.fetch_tracker_history(since, trackers), timeout * 6)
         await ws.send(Presence(type="presence", full=False, trackers=changes, replay_from=since).model_dump_json())
-        log.info("presence replay sent", count=len(changes), hours=window.total_seconds() / 3600)
+        # The scanner's reaches are sightings too, so a walk out the door shorter than its grace
+        # shows as a gap even where the network sweep missed a sleeping phone.
+        for i in range(0, len(reaches), SIGHTINGS_PER_FRAME):
+            await ws.send(Sightings(type="sightings", devices=reaches[i : i + SIGHTINGS_PER_FRAME]).model_dump_json())
+        log.info("presence replay sent", count=len(changes), reaches=len(reaches), hours=window.total_seconds() / 3600)
     except asyncio.CancelledError:
         raise
     except Exception as exc:

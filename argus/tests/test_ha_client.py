@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from argus_addon.ha_client import HaClient, history_changes, merge_candidates, tracker_from_state
+from argus_addon.ha_client import HaClient, history_changes, history_reaches, merge_candidates, tracker_from_state
 
 
 class _ClosingWs:
@@ -694,11 +694,36 @@ async def test_the_history_of_every_tracker_comes_back_oldest_first(ha_mock):
             ),
             tracker_from_state({"entity_id": "person.milli", "state": "not_home", "attributes": {}}),
         ]
-        got = await client.fetch_tracker_history(_since(), trackers)
+        got, reaches = await client.fetch_tracker_history(_since(), trackers)
         assert [t.entity_id for t in got] == ["person.milli", "device_tracker.phone"]
+        assert reaches == [], "a phone with no address is no device on the network"
         assert ha_mock.history_requests[0]["entity_ids"] == ["device_tracker.phone"]
         assert ha_mock.history_requests[0]["no_attributes"] is False, (
             "the departure row carries when a scan last reached the device"
         )
     finally:
         await client.close()
+
+
+def test_a_walk_inside_the_scanners_grace_shows_as_a_gap_in_its_reaches():
+    vidar = tracker_from_state(
+        {
+            "entity_id": "device_tracker.nmap_tracker_56_c9_55_3e_5b_be",
+            "state": "home",
+            "attributes": {"source_type": "router", "mac": "56:c9:55:3e:5b:be"},
+        }
+    )
+
+    def scan(hh, mm, ss, state="home"):
+        at = f"2026-10-20T{hh:02d}:{mm:02d}:{ss:02d}+02:00"
+        return {"s": state, "a": {"last_time_reachable": at, "ip": "192.168.184.175"}, "lu": _ts(hh, mm, ss)}
+
+    rows = [scan(14, 38, 22), scan(14, 40, 24), scan(14, 42, 23), scan(14, 44, 24), scan(15, 18, 24), scan(15, 20, 24)]
+    got = history_reaches(vidar, rows, _since())
+    assert [(s.mac, s.since.strftime("%H:%M:%S"), s.at.strftime("%H:%M:%S")) for s in got] == [
+        ("56:C9:55:3E:5B:BE", "12:38:22", "12:44:24"),
+        ("56:C9:55:3E:5B:BE", "13:18:24", "13:20:24"),
+    ], "one sighting per stretch, first scan to last, so the half hour out the door is a gap"
+    assert got[0].ip == "192.168.184.175"
+    app = tracker_from_state({"entity_id": "device_tracker.app", "state": "home", "attributes": {"source_type": "gps"}})
+    assert history_reaches(app, rows, _since()) == [], "a phone's location is no device on the network"

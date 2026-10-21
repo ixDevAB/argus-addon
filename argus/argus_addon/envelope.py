@@ -108,11 +108,13 @@ class Presence(BaseModel):
 
 
 class Sighting(BaseModel):
-    """A device that answered on the home's network, and when it last did."""
+    """A device that answered on the home's network, and when it last did; since, when it carries a
+    whole stretch the scanner reached it, from the first scan of it."""
 
     mac: str
     ip: str
     at: datetime
+    since: datetime | None = None
 
 
 class Sightings(BaseModel):

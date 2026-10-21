@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.0
+
+- Every scan that reaches a phone at home is sent as a sighting, and each presence replay sends the scanner's stretches from Home Assistant's history, one sighting from first scan to last. A walk out the door shorter than the scanner's half hour of grace now shows as a gap, even where the network sweep missed a sleeping phone. Needs backend 1.10.0 or later.
+
 ## 1.9.0
 
 - Each entity carries its integration's iot_class from Home Assistant's manifest, so Argus can tell a cloud device (a Yale lock on an account several homes share) from one in the house. Needs backend 1.9.0 or later.

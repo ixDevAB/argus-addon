@@ -1,13 +1,13 @@
 import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import aiohttp
 import structlog
 
-from argus_addon.envelope import DeviceRef, EntityRef, Tracker
+from argus_addon.envelope import DeviceRef, EntityRef, Sighting, Tracker
 
 log = structlog.get_logger(__name__)
 
@@ -141,6 +141,49 @@ def history_changes(current: Tracker, rows: list[dict[str, Any]], since: datetim
             out.append(current.model_copy(update={"state": value, "changed_at": at, "last_seen_at": seen}))
         state = value
     return out
+
+
+# A gap between two scans that reached a device longer than this ends one stretch of it on the
+# network and starts the next: the scanner reaches each device every two minutes.
+REACH_GAP = timedelta(minutes=5)
+
+
+def reached(row: dict[str, Any]) -> datetime | None:
+    """When a scanned device's state says a scan last reached it, while it is home."""
+    attrs = row.get("attributes") or row.get("a") or {}
+    state = row.get("state", row.get("s"))
+    if state != "home" or attrs.get("source_type", "router") != "router":
+        return None
+    at = _aware(attrs.get("last_time_reachable"))
+    return at.astimezone(UTC) if at else None
+
+
+def history_reaches(current: Tracker, rows: list[dict[str, Any]], since: datetime) -> list[Sighting]:
+    """The stretches a scanned device was reached on the network, from its history rows, one
+    sighting each from its first scan to its last, so a day of scans every two minutes is a few
+    sightings. Only a router tracker with an address is a device on the network."""
+    if current.source_type != "router" or not current.mac:
+        return []
+    ips: dict[datetime, str] = {}
+    for row in rows:
+        at = reached(row)
+        if at is not None and at >= since:
+            ips[at] = address(row)
+    times = sorted(ips)
+    out: list[Sighting] = []
+    start: datetime | None = None
+    for i, at in enumerate(times):
+        if i == 0 or at - times[i - 1] > REACH_GAP:
+            start = at
+        if i == len(times) - 1 or times[i + 1] - at > REACH_GAP:
+            out.append(Sighting(mac=current.mac, ip=ips[at], at=at, since=start))
+    return out
+
+
+def address(row: dict[str, Any]) -> str:
+    """The address a scan reached a device at, empty when the state does not say."""
+    ip = (row.get("attributes") or row.get("a") or {}).get("ip")
+    return ip if isinstance(ip, str) else ""
 
 
 def merge_candidates(sdp: str, candidates: list[dict[str, Any]]) -> str:
@@ -661,15 +704,20 @@ class HaClient:
                 out.append(tracker)
         return out
 
-    async def fetch_tracker_history(self, since: datetime, trackers: list[Tracker]) -> list[Tracker]:
-        """Every change of the trackers since then, oldest first, from Home Assistant's recorder.
+    async def fetch_tracker_history(
+        self, since: datetime, trackers: list[Tracker]
+    ) -> tuple[list[Tracker], list[Sighting]]:
+        """Every change of the trackers since then, oldest first, from Home Assistant's recorder,
+        and the stretches its scanner reached each device on the network.
 
         A scanned device's "gone" comes a grace period after it left and carries when a scan last
-        reached it, so its departure is dated by that. The attributes are only in the full rows, so
-        those are asked for. A tracker that was unavailable or unknown in between neither came nor
-        went.
+        reached it, so its departure is dated by that; every scan in between says it was there,
+        which a walk shorter than the grace shows only as a gap. The attributes are only in the full
+        rows, so those are asked for. A tracker that was unavailable or unknown in between neither
+        came nor went.
         """
         out: list[Tracker] = []
+        reaches: list[Sighting] = []
         for current in trackers:
             reply = await self._request(
                 {
@@ -683,8 +731,10 @@ class HaClient:
             )
             rows = (reply.get("result") or {}).get(current.entity_id) or []
             out.extend(history_changes(current, rows, since))
+            reaches.extend(history_reaches(current, rows, since))
         out.sort(key=lambda t: t.changed_at)
-        return out
+        reaches.sort(key=lambda s: s.at)
+        return out, reaches
 
     async def subscribe_events(self) -> None:
         for event_type in ("state_changed", "entity_registry_updated"):

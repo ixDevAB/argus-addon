@@ -11,12 +11,14 @@ from aiohttp import web
 
 from argus_addon import ingress, pair_client, ws_client
 from argus_addon.clips import DEFAULT_SPOOL_BYTES, ClipRecorder, Spool
-from argus_addon.envelope import Presence, State
+from argus_addon.envelope import Presence, Sighting, Sightings, State
 from argus_addon.ha_client import (
     PRESENCE_DOMAINS,
     HaClient,
+    address,
     is_battery_sensor,
     is_battery_state_sensor,
+    reached,
     tracker_from_state,
 )
 from argus_addon.idempotency import Idempotency
@@ -61,9 +63,17 @@ def _build_state_forwarder(send_queue: asyncio.Queue):
             return
         domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
         if domain in PRESENCE_DOMAINS:
+            # Each scan that reaches a device at home is a sighting of it, so a walk shorter than
+            # the scanner's grace still shows as a gap.
+            old_state = event_data.get("old_state") or {}
+            mac = (new_state.get("attributes") or {}).get("mac")
+            at = reached(new_state)
+            if at is not None and isinstance(mac, str) and mac and at != reached(old_state):
+                await send_queue.put(
+                    Sightings(type="sightings", devices=[Sighting(mac=mac.upper(), ip=address(new_state), at=at)])
+                )
             # A phone's GPS position updates its attributes every few seconds; only a change of
             # home, away or zone is news.
-            old_state = event_data.get("old_state") or {}
             if old_state.get("state") == state_value:
                 return
             tracker = tracker_from_state(new_state)
