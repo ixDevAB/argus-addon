@@ -771,3 +771,34 @@ async def test_fetch_sends_siren_features_buttons_and_config_switch_values(ha_mo
         assert entities["switch.hall_plug"].value is None
     finally:
         await client.close()
+
+
+async def test_a_lock_is_synced_and_its_state_says_who_turned_it(ha_mock):
+    ha_mock.devices = [{"id": "dev-door", "name": "Ytterdörr", "name_by_user": None, "area_id": None}]
+    ha_mock.entities = [
+        {"entity_id": "lock.ytterdorr", "platform": "yale", "device_id": "dev-door"},
+        {
+            "entity_id": "binary_sensor.ytterdorr_dorr",
+            "platform": "yale",
+            "device_class": "door",
+            "device_id": "dev-door",
+        },
+    ]
+    ha_mock.states = {
+        "lock.ytterdorr": {
+            "state": "unlocked",
+            "attributes": {"changed_by": "Vidar", "battery_level": 92, "supported_features": 1},
+        },
+        "binary_sensor.ytterdorr_dorr": {"state": "off", "attributes": {"device_class": "door"}},
+    }
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        entities = {e.entity_id: e for e in await client.fetch_entities()}
+        assert entities["lock.ytterdorr"].domain == "lock"
+        assert entities["lock.ytterdorr"].device_id == "dev-door"
+        states = {row["entity_id"]: row for row in await client.fetch_states()}
+        assert states["lock.ytterdorr"]["state"] == "unlocked"
+        assert states["lock.ytterdorr"]["attributes"] == {"changed_by": "Vidar", "battery_level": 92}
+    finally:
+        await client.close()

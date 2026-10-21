@@ -13,6 +13,7 @@ from argus_addon import ingress, pair_client, ws_client
 from argus_addon.clips import DEFAULT_SPOOL_BYTES, ClipRecorder, Spool
 from argus_addon.envelope import Presence, Sighting, Sightings, State
 from argus_addon.ha_client import (
+    FORWARDED_ATTRIBUTES,
     PRESENCE_DOMAINS,
     HaClient,
     address,
@@ -84,7 +85,7 @@ def _build_state_forwarder(send_queue: asyncio.Queue):
         # number and select carry camera settings (PIR sensitivity, day/night mode); the cloud
         # mirrors them so the app shows what the camera actually holds.
         if (
-            domain not in {"binary_sensor", "switch", "camera", "number", "select"}
+            domain not in {"binary_sensor", "switch", "camera", "number", "select", "lock"}
             and not is_battery_sensor(entity_id, raw_attrs.get("device_class"))
             and not is_battery_state_sensor(entity_id, None, raw_attrs.get("options"))
         ):
@@ -97,9 +98,7 @@ def _build_state_forwarder(send_queue: asyncio.Queue):
                 at = datetime.now(UTC)
         else:
             at = datetime.now(UTC)
-        forwarded_attrs = {
-            k: v for k, v in raw_attrs.items() if k in {"battery_level", "device_class", "friendly_name"}
-        }
+        forwarded_attrs = {k: v for k, v in raw_attrs.items() if k in FORWARDED_ATTRIBUTES}
         envelope = State(
             type="state",
             entity_id=entity_id,

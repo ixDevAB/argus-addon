@@ -18,7 +18,9 @@ class Hello(BaseModel):
 class EntityRef(BaseModel):
     entity_id: str
     device_class: str | None
-    domain: Literal["binary_sensor", "switch", "siren", "light", "number", "select", "camera", "sensor", "button"]
+    domain: Literal[
+        "binary_sensor", "switch", "siren", "light", "number", "select", "camera", "sensor", "button", "lock"
+    ]
     friendly_name: str | None = None
     area: str | None = None
     entity_category: str | None = None

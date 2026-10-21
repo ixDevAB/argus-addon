@@ -21,9 +21,13 @@ RECONNECT_MAX_S = 30.0
 # Domains Argus ingests: contact/motion triggers (binary_sensor), outputs —
 # siren (switch relays + HA's dedicated siren domain, e.g. camera sirens) and lights
 # (light fixtures + switch plugs used as deterrents) — and cameras (live-stream
-# sources; their state carries availability). Argus decides which to surface/hide
-# downstream; the add-on is a dumb pipe.
-SYNCED_DOMAINS = {"binary_sensor", "switch", "siren", "light", "camera"}
+# sources; their state carries availability) and locks, whose changes say who unlocked them.
+# Argus decides which to surface/hide downstream; the add-on is a dumb pipe.
+SYNCED_DOMAINS = {"binary_sensor", "switch", "siren", "light", "camera", "lock"}
+
+# The state attributes Argus reads; a lock's changed_by is the code, app user or hand that
+# turned it.
+FORWARDED_ATTRIBUTES = {"battery_level", "device_class", "friendly_name", "changed_by"}
 
 # Who is home: HA's persons, and the device trackers behind them and the router's Wi-Fi list.
 # They travel as presence frames, never as sensor states.
@@ -706,7 +710,7 @@ class HaClient:
             state = srow.get("state")
             if not isinstance(state, str):
                 continue
-            attrs = {k: v for k, v in raw_attrs.items() if k in {"battery_level", "device_class", "friendly_name"}}
+            attrs = {k: v for k, v in raw_attrs.items() if k in FORWARDED_ATTRIBUTES}
             out.append({"entity_id": entity_id, "state": state, "attributes": attrs})
         return out
 
