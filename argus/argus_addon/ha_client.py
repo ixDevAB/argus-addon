@@ -66,6 +66,9 @@ WEBRTC_ANSWER_TIMEOUT = 25.0
 # entity_list with their current value + bounds/options and device grouping, but NOT
 # streamed as live state events — Argus reads them on demand / at resync.
 CONFIG_DOMAINS = {"number", "select"}
+# Buttons a device offers, such as a smoke alarm's self-test or a camera's pre-siren chirp; the
+# cloud shows the ones that belong with a siren and presses them on request.
+ACTION_DOMAINS = {"button"}
 
 
 def is_scanner_tracker(row: dict[str, Any]) -> bool:
@@ -600,7 +603,12 @@ class HaClient:
             if entity_id and isinstance(row.get("unique_id"), str):
                 self._unique_ids[entity_id] = row["unique_id"]
             domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
-            if domain not in SYNCED_DOMAINS and domain not in CONFIG_DOMAINS and domain != "sensor":
+            if (
+                domain not in SYNCED_DOMAINS
+                and domain not in CONFIG_DOMAINS
+                and domain not in ACTION_DOMAINS
+                and domain != "sensor"
+            ):
                 continue
             # A disabled registry entry has no state and refuses every service call and stream
             # (e.g. the two Reolink stream profiles HA leaves off by default), so it is not a
@@ -624,7 +632,11 @@ class HaClient:
             area = area_name.get(area_id) if area_id else None
             value: str | None = None
             config_attributes: dict[str, Any] | None = None
-            if domain in CONFIG_DOMAINS or domain == "sensor":
+            if (
+                domain in CONFIG_DOMAINS
+                or domain == "sensor"
+                or (domain == "switch" and row.get("entity_category") == "config")
+            ):
                 raw_state = state.get("state") if isinstance(state, dict) else None
                 value = raw_state if isinstance(raw_state, str) else None
                 if domain == "number":
@@ -635,6 +647,9 @@ class HaClient:
                     options = attrs.get("options")
                     if isinstance(options, list):
                         config_attributes = {"options": options}
+            # Which of on, off, volume and duration the siren takes, so the cloud sends only those.
+            if domain == "siren" and isinstance(attrs.get("supported_features"), int):
+                config_attributes = {"supported_features": attrs["supported_features"]}
             entities.append(
                 EntityRef(
                     entity_id=entity_id,

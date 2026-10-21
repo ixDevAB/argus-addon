@@ -727,3 +727,47 @@ def test_a_walk_inside_the_scanners_grace_shows_as_a_gap_in_its_reaches():
     assert got[0].ip == "192.168.184.175"
     app = tracker_from_state({"entity_id": "device_tracker.app", "state": "home", "attributes": {"source_type": "gps"}})
     assert history_reaches(app, rows, _since()) == [], "a phone's location is no device on the network"
+
+
+async def test_fetch_sends_siren_features_buttons_and_config_switch_values(ha_mock):
+    ha_mock.devices = [{"id": "dev-front", "name": "Framsidan", "name_by_user": None, "area_id": None}]
+    ha_mock.entities = [
+        {
+            "entity_id": "siren.framsidan_siren",
+            "platform": "reolink",
+            "translation_key": "siren",
+            "device_id": "dev-front",
+        },
+        {
+            "entity_id": "button.framsidan_forsiren",
+            "platform": "reolink",
+            "translation_key": "pre_siren",
+            "device_id": "dev-front",
+        },
+        {
+            "entity_id": "switch.framsidan_siren_vid_handelse",
+            "platform": "reolink",
+            "translation_key": "siren_on_event",
+            "entity_category": "config",
+            "device_id": "dev-front",
+        },
+        {"entity_id": "switch.hall_plug", "platform": "zha"},
+    ]
+    ha_mock.states = {
+        "siren.framsidan_siren": {"state": "off", "attributes": {"supported_features": 27}},
+        "button.framsidan_forsiren": {"state": "unknown", "attributes": {}},
+        "switch.framsidan_siren_vid_handelse": {"state": "on", "attributes": {}},
+        "switch.hall_plug": {"state": "off", "attributes": {}},
+    }
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        entities = {e.entity_id: e for e in await client.fetch_entities()}
+        assert entities["siren.framsidan_siren"].attributes == {"supported_features": 27}
+        button = entities["button.framsidan_forsiren"]
+        assert button.domain == "button"
+        assert button.translation_key == "pre_siren"
+        assert entities["switch.framsidan_siren_vid_handelse"].value == "on"
+        assert entities["switch.hall_plug"].value is None
+    finally:
+        await client.close()
