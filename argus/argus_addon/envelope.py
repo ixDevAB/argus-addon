@@ -142,6 +142,7 @@ class Cmd(BaseModel):
         "upload_clip",
         "cancel_clip",
         "unpair",
+        "rotate_token",
     ]
     args: dict[str, Any]
 

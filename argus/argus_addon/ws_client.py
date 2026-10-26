@@ -23,6 +23,7 @@ from argus_addon.envelope import (
 )
 from argus_addon.heartbeat import HEARTBEAT_INTERVAL, heartbeat
 from argus_addon.idempotency import Idempotency
+from argus_addon.pair_client import save_token
 from argus_addon.sightings import SWEEP_EVERY_S, sweep
 
 log = structlog.get_logger(__name__)
@@ -91,6 +92,7 @@ async def run(
             jitter = random.uniform(0, delay)
             log.info("reconnect", delay=jitter, attempt=attempt)
             await asyncio.sleep(jitter)
+        rotated = False
         try:
             ssl_ctx = ssl.create_default_context() if use_tls and url.startswith("wss://") else None
             async with websockets.connect(
@@ -138,6 +140,11 @@ async def run(
                             token_path.unlink(missing_ok=True)
                             log.warning("unpaired by the server, returning to pairing mode")
                             return
+                        if env.op == "rotate_token":
+                            rotated = await _take_rotated_token(ws, env, token_path)
+                            if rotated:
+                                break
+                            continue
                         if env.op in SLOW_OPS:
                             # A WebRTC negotiation waits seconds for a camera to wake. It must never
                             # sit in front of a siren command, so it runs off the receive loop.
@@ -157,7 +164,8 @@ async def run(
                     sightings_task.cancel()
                     for task in background:
                         task.cancel()
-            attempt += 1
+            # A new token is used at once: the server revokes the old one only once it sees it.
+            attempt = 0 if rotated else attempt + 1
         except websockets.exceptions.InvalidStatus as exc:
             if exc.response.status_code == 401:
                 token_path.unlink(missing_ok=True)
@@ -307,6 +315,26 @@ async def _send_states(ws, ha_client, timeout: float) -> None:
     except Exception as exc:
         log.warning("states snapshot failed", error=str(exc))
     await _send_presence(ws, ha_client, timeout)
+
+
+async def _take_rotated_token(ws, cmd: Cmd, token_path: Path) -> bool:
+    """Keep the token the server handed over and ack it; the caller reconnects with it.
+
+    A token that cannot be saved is refused in the ack and the current one stays in use,
+    which the server keeps live until the add-on connects with a new one.
+    """
+    token = cmd.args.get("install_token")
+    if not isinstance(token, str) or not token.strip():
+        await ws.send(Ack(type="ack", id=cmd.id, error="no install_token").model_dump_json())
+        return False
+    try:
+        save_token(token_path, token.strip())
+    except OSError as exc:
+        await ws.send(Ack(type="ack", id=cmd.id, error=f"token not saved: {exc}").model_dump_json())
+        return False
+    await ws.send(Ack(type="ack", id=cmd.id).model_dump_json())
+    log.info("new install token saved, reconnecting with it")
+    return True
 
 
 async def _handle_cmd(ws, cmd: Cmd, ha_client, idempotency: Idempotency, *, talk=None, recorder=None) -> None:

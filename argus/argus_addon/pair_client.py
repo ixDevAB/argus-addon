@@ -121,7 +121,7 @@ async def run_pairing(
                                 session_id=env.session_id,
                             )
                         elif isinstance(env, PairToken):
-                            _persist_token(token_path, env.install_token)
+                            save_token(token_path, env.install_token)
                             code_holder.clear()
                             log.info("pairing complete, token persisted")
                             return
@@ -138,22 +138,27 @@ async def run_pairing(
             attempt += 1
 
 
-def _persist_token(token_path: Path, install_token: str) -> None:
+def save_token(token_path: Path, install_token: str) -> None:
     """Write the install token to /data, failing loud on any error.
 
     Never log or display the token. A persist failure must surface, not be
-    swallowed into a token-less reconnect that would strand the home.
+    swallowed into a token-less reconnect that would strand the home. The token
+    goes to a file beside it first and is renamed over the old one, so a crash
+    mid-write leaves the old token, never half of either.
     """
+    staged = token_path.with_name(token_path.name + ".new")
     try:
         token_path.parent.mkdir(parents=True, exist_ok=True)
         # open with 0o600 + fchmod before writing so the token is never briefly
         # readable through a default-permission window (no write-then-chmod gap)
-        fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
             os.fchmod(fd, 0o600)
             os.write(fd, install_token.encode())
+            os.fsync(fd)
         finally:
             os.close(fd)
+        os.replace(staged, token_path)
     except OSError as exc:
         log.error("token persist failed", error=str(exc), path=str(token_path))
         raise

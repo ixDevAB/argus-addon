@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.14.0
+
+- Takes a new token from Argus over its connection and reconnects with it, so a token can be replaced without pairing the home again. The old token stops working once the add-on has connected with the new one. Needs backend 1.14.0 or later.
+
 ## 1.13.0
 
 - Sends its token to Argus in the Authorization header instead of the address, so no proxy between the home and Argus keeps it in its request log. Needs backend 1.13.0 or later.

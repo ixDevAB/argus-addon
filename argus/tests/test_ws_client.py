@@ -122,6 +122,46 @@ async def test_unpair_cmd_acks_drops_the_token_and_returns(cloud_mock, tmp_path)
         await _stop(task, stop)
 
 
+async def test_rotated_token_is_saved_acked_and_used_on_the_next_connect(cloud_mock, tmp_path):
+    task, _ha, _idem, _q, stop, token_path = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        cmd = {
+            "type": "cmd",
+            "id": "01939999-0000-7000-8000-00000000aa02",
+            "op": "rotate_token",
+            "args": {"install_token": "fresh-token-abc"},
+        }
+        await cloud_mock.send_to_client(cmd)
+        ack = await cloud_mock.wait_for(lambda e: e.get("type") == "ack" and e.get("id") == cmd["id"], timeout=3.0)
+        assert ack.get("error") is None
+        for _ in range(100):
+            if cloud_mock.addon_requests[-1][1] == "Bearer fresh-token-abc":
+                break
+            await asyncio.sleep(0.03)
+        assert cloud_mock.addon_requests[-1][1] == "Bearer fresh-token-abc"
+        assert token_path.read_text() == "fresh-token-abc"
+        assert token_path.stat().st_mode & 0o777 == 0o600
+        assert not token_path.with_name(token_path.name + ".new").exists()
+        assert not task.done()
+    finally:
+        await _stop(task, stop)
+
+
+async def test_rotation_without_a_token_is_refused_and_keeps_the_current_one(cloud_mock, tmp_path):
+    task, _ha, _idem, _q, stop, token_path = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        cmd = {"type": "cmd", "id": "01939999-0000-7000-8000-00000000aa03", "op": "rotate_token", "args": {}}
+        await cloud_mock.send_to_client(cmd)
+        ack = await cloud_mock.wait_for(lambda e: e.get("type") == "ack" and e.get("id") == cmd["id"], timeout=3.0)
+        assert ack["error"] == "no install_token"
+        assert token_path.read_text() == "test-token-xyz"
+        assert len(cloud_mock.addon_requests) == 1
+    finally:
+        await _stop(task, stop)
+
+
 async def test_rejected_token_drops_the_token_and_returns(cloud_mock, tmp_path):
     cloud_mock.reject_status = 401
     task, _ha, _idem, _q, stop, token_path = await _start_runner(cloud_mock, tmp_path)
