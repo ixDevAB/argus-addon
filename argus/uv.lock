@@ -184,7 +184,7 @@ requires-dist = [
     { name = "segno", specifier = ">=1.6,<2" },
     { name = "structlog", specifier = ">=24" },
     { name = "typing-extensions", specifier = ">=4.12" },
-    { name = "websockets", specifier = ">=13" },
+    { name = "websockets", specifier = ">=14" },
 ]
 provides-extras = ["dev"]
 
