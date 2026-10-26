@@ -88,6 +88,17 @@ async def _stop(task, stop_event):
         await task
 
 
+async def test_the_token_goes_in_a_header_never_the_url(cloud_mock, tmp_path):
+    task, _ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        path, authorization = cloud_mock.addon_requests[-1]
+        assert "test-token-xyz" not in path
+        assert authorization == "Bearer test-token-xyz"
+    finally:
+        await _stop(task, stop)
+
+
 async def test_handshake_sends_hello(cloud_mock, tmp_path):
     task, _ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path)
     try:

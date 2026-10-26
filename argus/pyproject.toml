@@ -3,7 +3,7 @@ name = "argus_addon"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "websockets>=13",
+    "websockets>=14",
     "aiohttp>=3.9",
     "pydantic>=2",
     "structlog>=24",

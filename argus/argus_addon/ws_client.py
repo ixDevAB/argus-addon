@@ -83,7 +83,9 @@ async def run(
         if not token:
             await asyncio.sleep(0.1)
             continue
-        url = f"{cloud_url}/{token}"
+        # The token goes in the Authorization header, never the URL: a proxy's request log keeps
+        # every URL it serves.
+        url = cloud_url
         delay = min(initial_backoff * (2**attempt), max_backoff)
         if attempt:
             jitter = random.uniform(0, delay)
@@ -93,6 +95,7 @@ async def run(
             ssl_ctx = ssl.create_default_context() if use_tls and url.startswith("wss://") else None
             async with websockets.connect(
                 url,
+                additional_headers={"Authorization": f"Bearer {token}"},
                 ssl=ssl_ctx,
                 ping_interval=20,
                 ping_timeout=10,

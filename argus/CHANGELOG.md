@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.13.0
+
+- Sends its token to Argus in the Authorization header instead of the address, so no proxy between the home and Argus keeps it in its request log. Needs backend 1.13.0 or later.
+
 ## 1.12.0
 
 - Sends the home's locks and each change of them with who the lock says turned it, a code's or app user's name or how it was turned, so Argus can tell an unlock in the activity and date someone's arrival by their own code. Needs backend 1.12.0 or later.

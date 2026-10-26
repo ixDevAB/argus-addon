@@ -13,6 +13,8 @@ class CloudMock:
         self.connections: list[ServerConnection] = []
         self.pair_connections: list[ServerConnection] = []
         self.pair_paths: list[str] = []
+        # The path and Authorization header of each add-on socket, as the cloud saw them.
+        self.addon_requests: list[tuple[str, str | None]] = []
         self._server: Any | None = None
         self._port: int = 0
         self._lock = asyncio.Lock()
@@ -45,6 +47,9 @@ class CloudMock:
             return
         async with self._lock:
             self.connections.append(conn)
+            self.addon_requests.append(
+                (path, conn.request.headers.get("Authorization") if conn.request is not None else None)
+            )
         try:
             async for raw in conn:
                 if isinstance(raw, bytes):
