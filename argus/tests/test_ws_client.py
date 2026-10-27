@@ -1,8 +1,9 @@
 import asyncio
 import contextlib
+from datetime import UTC, datetime, timedelta
 
 from argus_addon import ws_client
-from argus_addon.envelope import EntityRef
+from argus_addon.envelope import EntityRef, State
 from argus_addon.idempotency import Idempotency
 
 
@@ -227,6 +228,20 @@ async def test_cmd_call_service_ha_refused_is_acked_with_its_reason(cloud_mock, 
         await cloud_mock.send_to_client(cmd)
         ack = await cloud_mock.wait_for(lambda e: e.get("type") == "ack" and e.get("id") == cmd["id"], timeout=3.0)
         assert ack.get("error") == "service_not_found: Service siren.turn_on not found"
+    finally:
+        await _stop(task, stop)
+
+
+async def test_a_state_held_while_the_link_was_down_goes_out_with_its_age(cloud_mock, tmp_path):
+    task, _ha, _idem, queue, stop, _tp = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        held = datetime.now(UTC) - timedelta(minutes=10)
+        await queue.put(State(type="state", entity_id="binary_sensor.hall_motion", state="on", at=held))
+        frame = await cloud_mock.wait_for(
+            lambda e: e.get("type") == "state" and e.get("entity_id") == "binary_sensor.hall_motion", timeout=3.0
+        )
+        assert 590_000 <= frame["age_ms"] <= 620_000
     finally:
         await _stop(task, stop)
 

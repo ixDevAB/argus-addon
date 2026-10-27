@@ -18,6 +18,7 @@ from argus_addon.envelope import (
     Hello,
     Presence,
     Sightings,
+    State,
     StateSnapshotItem,
     StatesSnapshot,
 )
@@ -184,6 +185,9 @@ async def run(
 async def _send_loop(ws, queue: asyncio.Queue):
     while True:
         env = await queue.get()
+        if isinstance(env, State):
+            at = env.at if env.at.tzinfo is not None else env.at.replace(tzinfo=UTC)
+            env.age_ms = max(0, int((datetime.now(UTC) - at).total_seconds() * 1000))
         if isinstance(env, dict):
             await ws.send(json.dumps(env))
         else:

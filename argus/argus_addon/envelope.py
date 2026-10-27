@@ -65,6 +65,9 @@ class State(BaseModel):
     state: str
     at: datetime
     attributes: dict[str, Any] | None = None
+    # How long ago the change happened, by this box's clock, when the frame went out: a change held
+    # while the cloud link was down arrives old, and the cloud must not judge it as happening now.
+    age_ms: int | None = None
 
 
 class StateSnapshotItem(BaseModel):
