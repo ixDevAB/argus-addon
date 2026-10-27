@@ -35,13 +35,16 @@ async def test_reconnects_after_server_drop(ha_mock):
     try:
         first = await client.fetch_entities()
         assert any(e.entity_id == "binary_sensor.kitchen_motion" for e in first)
+        assert client.link_up()
         await ha_mock.drop_connections()
         for _ in range(50):
             if client._ws is None or client._ws.closed:
                 break
             await asyncio.sleep(0.02)
+        assert not client.link_up()
         second = await client.fetch_entities()
         assert any(e.entity_id == "binary_sensor.kitchen_motion" for e in second)
+        assert client.link_up()
     finally:
         await client.close()
 

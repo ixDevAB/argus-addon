@@ -286,6 +286,10 @@ class HaClient:
     def _ws_live(self) -> bool:
         return self._ws is not None and not self._ws.closed
 
+    def link_up(self) -> bool:
+        """The websocket to Home Assistant is open, so its state changes reach the add-on."""
+        return self._ws_live()
+
     async def connect(self, ws_url: str | None = None) -> None:
         if ws_url is not None:
             self.ws_url = ws_url

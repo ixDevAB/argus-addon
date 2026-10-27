@@ -108,7 +108,7 @@ async def run(
                 if recorder is not None:
                     # Files recorded while the link was down ask for a fresh upload URL.
                     await recorder.resend_spooled()
-                hb_task = asyncio.create_task(heartbeat(ws, heartbeat_interval))
+                hb_task = asyncio.create_task(heartbeat(ws, heartbeat_interval, ha_link_up=ha_client.link_up))
                 send_task = asyncio.create_task(_send_loop(ws, send_queue))
                 entity_task = asyncio.create_task(
                     _sync_entities(

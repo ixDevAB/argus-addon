@@ -7,6 +7,9 @@ from argus_addon.idempotency import Idempotency
 
 
 class FakeHaClient:
+    def link_up(self):
+        return True
+
     def __init__(self):
         self.calls: list[dict] = []
         self._version = "2026.5.0"
