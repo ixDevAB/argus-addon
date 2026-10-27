@@ -1,4 +1,5 @@
 import asyncio
+import re
 
 import pytest
 
@@ -303,6 +304,17 @@ async def test_call_service(ha_mock):
     assert call["domain"] == "switch"
     assert call["service"] == "turn_on"
     assert call["service_data"] == {"entity_id": "switch.siren_living"}
+
+
+async def test_call_service_refused_by_ha_raises_with_its_reason(ha_mock):
+    ha_mock.service_error = {"code": "service_not_found", "message": "Service siren.turn_on not found"}
+    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
+    await client.connect()
+    try:
+        with pytest.raises(RuntimeError, match=re.escape("service_not_found: Service siren.turn_on not found")):
+            await client.call_service("siren", "turn_on", {"entity_id": "siren.hall"})
+    finally:
+        await client.close()
 
 
 async def test_subscribe_events(ha_mock):

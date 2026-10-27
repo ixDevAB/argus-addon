@@ -29,6 +29,8 @@ class FakeHaClient:
 
     async def call_service(self, domain, service, service_data):
         self.calls.append({"domain": domain, "service": service, "service_data": service_data})
+        if getattr(self, "service_error", None):
+            raise RuntimeError(self.service_error)
 
     async def webrtc_offer(self, entity_id, sdp):
         self.calls.append({"webrtc_offer": entity_id, "sdp": sdp})
@@ -204,6 +206,24 @@ async def test_cmd_call_service_relays_to_ha(cloud_mock, tmp_path):
         assert ha.calls[0]["domain"] == "switch"
         assert ha.calls[0]["service"] == "turn_on"
         assert idem.seen(cmd["id"]) is True
+    finally:
+        await _stop(task, stop)
+
+
+async def test_cmd_call_service_ha_refused_is_acked_with_its_reason(cloud_mock, tmp_path):
+    task, ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path)
+    ha.service_error = "service_not_found: Service siren.turn_on not found"
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        cmd = {
+            "type": "cmd",
+            "id": "01939999-0000-7000-8000-000000000009",
+            "op": "call_service",
+            "args": {"domain": "siren", "service": "turn_on", "entity_id": "siren.hall"},
+        }
+        await cloud_mock.send_to_client(cmd)
+        ack = await cloud_mock.wait_for(lambda e: e.get("type") == "ack" and e.get("id") == cmd["id"], timeout=3.0)
+        assert ack.get("error") == "service_not_found: Service siren.turn_on not found"
     finally:
         await _stop(task, stop)
 

@@ -232,6 +232,13 @@ def merge_candidates(sdp: str, candidates: list[dict[str, Any]]) -> str:
     return newline.join(out) + newline
 
 
+def _refused(reply: dict[str, Any], what: str) -> None:
+    """Home Assistant answers a command it would not carry out with success false; that is a failure."""
+    if not reply.get("success", False):
+        err = reply.get("error") or {}
+        raise RuntimeError(f"{err.get('code', 'ha_error')}: {err.get('message', what)}")
+
+
 class HaClient:
     def __init__(
         self,
@@ -412,7 +419,7 @@ class HaClient:
             raise TimeoutError(f"ha_client request timed out after {REQUEST_TIMEOUT}s: {payload.get('type')}") from exc
 
     async def _send_subscribe(self, event_type: str) -> None:
-        await self._request({"type": "subscribe_events", "event_type": event_type})
+        _refused(await self._request({"type": "subscribe_events", "event_type": event_type}), "subscription refused")
 
     async def _subscribe(self, payload: dict[str, Any]) -> tuple[int, asyncio.Queue[dict[str, Any]]]:
         """Send a subscription-style command; returns its id and the queue its events land in.
@@ -447,8 +454,7 @@ class HaClient:
             ) from exc
         if not reply.get("success", False):
             self._subscriptions.pop(msg_id, None)
-            err = reply.get("error") or {}
-            raise RuntimeError(f"{err.get('code', 'ha_error')}: {err.get('message', 'subscription refused')}")
+        _refused(reply, "subscription refused")
         return msg_id, queue
 
     async def _unsubscribe(self, sub_id: int) -> None:
@@ -793,6 +799,7 @@ class HaClient:
                 "service_data": service_data,
             }
         )
+        _refused(reply, "service call refused")
         return reply
 
     async def close(self) -> None:

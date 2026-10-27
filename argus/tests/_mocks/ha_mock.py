@@ -39,6 +39,9 @@ class HaMock:
         # integration domain -> iot_class; served by manifest/list.
         self.iot_classes: dict[str, str] = {"zha": "local_push", "hue": "local_push", "reolink": "local_push"}
         self.service_calls: list[dict[str, Any]] = []
+        # When set, call_service answers success false with this error, as HA does for a refused call.
+        self.service_error: dict[str, Any] | None = None
+        self.subscribe_error: dict[str, Any] | None = None
         # config/entity_registry/update payloads, in order.
         self.registry_updates: list[dict[str, Any]] = []
         # WebRTC: offers received, subscriptions unsubscribed, and the scripted reply.
@@ -127,7 +130,12 @@ class HaMock:
                 result = {eid: self.history[eid] for eid in data.get("entity_ids", []) if eid in self.history}
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": result})
             elif kind == "subscribe_events":
-                await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": None})
+                if self.subscribe_error is not None:
+                    await ws.send_json(
+                        {"id": msg_id, "type": "result", "success": False, "error": self.subscribe_error}
+                    )
+                else:
+                    await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": None})
             elif kind == "unsubscribe_events":
                 self.unsubscribed.append(data.get("subscription"))
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": None})
@@ -156,9 +164,12 @@ class HaMock:
                         "service_data": data.get("service_data", {}),
                     }
                 )
-                await ws.send_json(
-                    {"id": msg_id, "type": "result", "success": True, "result": {"context": {"id": "ctx-mock"}}}
-                )
+                if self.service_error is not None:
+                    await ws.send_json({"id": msg_id, "type": "result", "success": False, "error": self.service_error})
+                else:
+                    await ws.send_json(
+                        {"id": msg_id, "type": "result", "success": True, "result": {"context": {"id": "ctx-mock"}}}
+                    )
             else:
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": None})
         return ws
