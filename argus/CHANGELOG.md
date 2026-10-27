@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.0
+
+- Tells Argus in every heartbeat whether Home Assistant is reachable, so a home whose add-on has lost Home Assistant reads offline instead of watched.
+- Sends each state change with how long ago it happened, so a change held while the internet was down is not judged by Argus as happening now.
+- Reports a service call or event subscription Home Assistant refused as a failure, with Home Assistant's reason, instead of as done.
+
 ## 1.14.0
 
 - Takes a new token from Argus over its connection and reconnects with it, so a token can be replaced without pairing the home again. The old token stops working once the add-on has connected with the new one. Needs backend 1.14.0 or later.
