@@ -466,12 +466,11 @@ async def test_state_subscription_comes_back_by_itself_after_the_link_drops(ha_m
     client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url, on_event=on_event)
     await client.connect()
     try:
+        client.link_restored.clear()
         await ha_mock.drop_connections()
-        # No request is made here on purpose: the alarm path must not depend on one.
-        for _ in range(100):
-            if client._ws_live() and len(ha_mock._sockets) == 1:
-                break
-            await asyncio.sleep(0.05)
+        # No request is made here on purpose: the alarm path must not depend on one. The link
+        # counts as back once its subscription is, not merely once the socket is open again.
+        await asyncio.wait_for(client.link_restored.wait(), timeout=10)
         assert client._ws_live()
         await ha_mock.push_state_event("binary_sensor.kitchen_motion", "on")
         for _ in range(50):
