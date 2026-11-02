@@ -1,0 +1,33 @@
+name: "addon-ci"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+# The add-on's lint and tests on the project's own runner, as the backend's run: nothing here
+# uses GitHub-hosted minutes. A job longer than its timeout is a hung test.
+
+jobs:
+  addon:
+    name: "ruff + pytest"
+    runs-on: "argus-ci"
+    timeout-minutes: 10
+    steps:
+      - name: "checkout"
+        uses: "actions/checkout@v4"
+      - name: "install-uv"
+        run: |
+          curl --fail --silent --show-error --location https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: "ruff"
+        working-directory: "./argus"
+        timeout-minutes: 5
+        run: |
+          uv run --extra dev ruff check .
+          uv run --extra dev ruff format --check .
+      - name: "pytest"
+        working-directory: "./argus"
+        timeout-minutes: 8
+        run: "uv run --extra dev pytest -q"
