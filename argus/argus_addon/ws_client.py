@@ -2,6 +2,9 @@ import asyncio
 import json
 import random
 import ssl
+import time
+import uuid
+from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -57,6 +60,43 @@ SLOW_OPS = {
 RESYNC_AFTER_ENABLE_S = 45.0
 
 
+STATE_OUTBOX_CAP = 1000
+STATE_RESEND_AFTER_S = 20.0
+
+
+class StateOutbox:
+    """The state changes sent but not yet acked by the cloud, oldest first.
+
+    A frame written into a socket that dies is lost without a word, and the cloud may fail to judge
+    one it did receive, so a change stays here until the cloud acks its id, across reconnects.
+    """
+
+    def __init__(self, cap: int = STATE_OUTBOX_CAP):
+        self.cap = cap
+        self._unacked: OrderedDict[str, tuple[State, float]] = OrderedDict()
+
+    def track(self, env: State, now: float) -> None:
+        if env.id is None:
+            env.id = uuid.uuid4().hex
+        self._unacked[env.id] = (env, now)
+        self._unacked.move_to_end(env.id)
+        while len(self._unacked) > self.cap:
+            dropped, _ = self._unacked.popitem(last=False)
+            log.error("state outbox full, oldest unacked change dropped", id=dropped)
+
+    def acked(self, state_id: str) -> bool:
+        return self._unacked.pop(state_id, None) is not None
+
+    def pending(self) -> list[State]:
+        return [env for env, _ in self._unacked.values()]
+
+    def overdue(self, now: float, after: float) -> list[State]:
+        return [env for env, sent in self._unacked.values() if now - sent >= after]
+
+    def __len__(self) -> int:
+        return len(self._unacked)
+
+
 async def run(
     token_path: Path,
     cloud_url: str,
@@ -73,7 +113,10 @@ async def run(
     stop_event: asyncio.Event | None = None,
     talk=None,
     recorder=None,
+    outbox: StateOutbox | None = None,
+    state_resend_after: float = STATE_RESEND_AFTER_S,
 ):
+    outbox = outbox if outbox is not None else StateOutbox()
     attempt = 0
     while True:
         if stop_event is not None and stop_event.is_set():
@@ -110,7 +153,7 @@ async def run(
                     # Files recorded while the link was down ask for a fresh upload URL.
                     await recorder.resend_spooled()
                 hb_task = asyncio.create_task(heartbeat(ws, heartbeat_interval, ha_link_up=ha_client.link_up))
-                send_task = asyncio.create_task(_send_loop(ws, send_queue))
+                send_task = asyncio.create_task(_send_loop(ws, send_queue, outbox, state_resend_after))
                 entity_task = asyncio.create_task(
                     _sync_entities(
                         ws,
@@ -133,6 +176,9 @@ async def run(
                             env = EnvelopeAdapter.validate_python(json.loads(raw))
                         except Exception as exc:
                             log.warning("invalid envelope", error=str(exc))
+                            continue
+                        if isinstance(env, Ack):
+                            outbox.acked(env.id)
                             continue
                         if not isinstance(env, Cmd):
                             continue
@@ -182,13 +228,29 @@ async def run(
             attempt += 1
 
 
-async def _send_loop(ws, queue: asyncio.Queue):
+async def _send_state(ws, env: State, outbox: StateOutbox) -> None:
+    at = env.at if env.at.tzinfo is not None else env.at.replace(tzinfo=UTC)
+    env.age_ms = max(0, int((datetime.now(UTC) - at).total_seconds() * 1000))
+    outbox.track(env, time.monotonic())
+    await ws.send(env.model_dump_json())
+
+
+async def _send_loop(ws, queue: asyncio.Queue, outbox: StateOutbox, resend_after: float = STATE_RESEND_AFTER_S):
+    # What the last socket never had acked goes first, in order, before anything newer.
+    for env in outbox.pending():
+        await _send_state(ws, env, outbox)
+    resend_every = max(resend_after / 4, 0.01)
     while True:
-        env = await queue.get()
+        try:
+            env = await asyncio.wait_for(queue.get(), timeout=resend_every)
+        except TimeoutError:
+            for stale in outbox.overdue(time.monotonic(), resend_after):
+                log.warning("state not acked, sending again", id=stale.id, entity_id=stale.entity_id)
+                await _send_state(ws, stale, outbox)
+            continue
         if isinstance(env, State):
-            at = env.at if env.at.tzinfo is not None else env.at.replace(tzinfo=UTC)
-            env.age_ms = max(0, int((datetime.now(UTC) - at).total_seconds() * 1000))
-        if isinstance(env, dict):
+            await _send_state(ws, env, outbox)
+        elif isinstance(env, dict):
             await ws.send(json.dumps(env))
         else:
             await ws.send(env.model_dump_json())

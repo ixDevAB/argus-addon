@@ -68,6 +68,8 @@ class State(BaseModel):
     # How long ago the change happened, by this box's clock, when the frame went out: a change held
     # while the cloud link was down arrives old, and the cloud must not judge it as happening now.
     age_ms: int | None = None
+    # The cloud acks this id once it has judged the change; until then the add-on sends it again.
+    id: str | None = None
 
 
 class StateSnapshotItem(BaseModel):

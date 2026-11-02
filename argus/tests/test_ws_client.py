@@ -58,6 +58,7 @@ async def _start_runner(
     entities=None,
     entity_fetch_timeout=10.0,
     entity_retry_interval=5.0,
+    state_resend_after=20.0,
 ):
     token_path = tmp_path / "token.txt"
     token_path.write_text("test-token-xyz")
@@ -82,6 +83,7 @@ async def _start_runner(
             entity_fetch_timeout=entity_fetch_timeout,
             entity_retry_interval=entity_retry_interval,
             stop_event=stop_event,
+            state_resend_after=state_resend_after,
         )
     )
     return task, ha_client, idempotency, send_queue, stop_event, token_path
@@ -244,6 +246,56 @@ async def test_a_state_held_while_the_link_was_down_goes_out_with_its_age(cloud_
         assert 590_000 <= frame["age_ms"] <= 620_000
     finally:
         await _stop(task, stop)
+
+
+def _states(cloud_mock, entity_id):
+    return [e for e in cloud_mock.received if e.get("type") == "state" and e.get("entity_id") == entity_id]
+
+
+async def test_a_state_the_cloud_never_acked_goes_again_after_a_reconnect(cloud_mock, tmp_path):
+    task, _ha, _idem, queue, stop, _tp = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        await queue.put(State(type="state", entity_id="binary_sensor.front_door", state="on", at=datetime.now(UTC)))
+        first = await cloud_mock.wait_for(lambda e: e.get("entity_id") == "binary_sensor.front_door", timeout=3.0)
+        assert first["id"]
+        await cloud_mock.drop_connections()
+        for _ in range(100):
+            if len(_states(cloud_mock, "binary_sensor.front_door")) >= 2:
+                break
+            await asyncio.sleep(0.05)
+        again = _states(cloud_mock, "binary_sensor.front_door")
+        assert len(again) >= 2, "the unacked change was not sent again on the new socket"
+        assert again[-1]["id"] == first["id"]
+    finally:
+        await _stop(task, stop)
+
+
+async def test_a_state_the_cloud_acked_is_not_sent_again(cloud_mock, tmp_path):
+    task, _ha, _idem, queue, stop, _tp = await _start_runner(cloud_mock, tmp_path, state_resend_after=0.2)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        await queue.put(State(type="state", entity_id="binary_sensor.hall_motion", state="on", at=datetime.now(UTC)))
+        sent = await cloud_mock.wait_for(lambda e: e.get("entity_id") == "binary_sensor.hall_motion", timeout=3.0)
+        await cloud_mock.send_to_client({"type": "ack", "id": sent["id"]})
+        await asyncio.sleep(0.6)
+        assert len(_states(cloud_mock, "binary_sensor.hall_motion")) == 1
+        await queue.put(State(type="state", entity_id="binary_sensor.back_door", state="on", at=datetime.now(UTC)))
+        await cloud_mock.wait_for(lambda e: e.get("entity_id") == "binary_sensor.back_door", timeout=3.0)
+        for _ in range(40):
+            if len(_states(cloud_mock, "binary_sensor.back_door")) >= 2:
+                break
+            await asyncio.sleep(0.05)
+        assert len(_states(cloud_mock, "binary_sensor.back_door")) >= 2, "an unacked change was not sent again"
+    finally:
+        await _stop(task, stop)
+
+
+def test_the_state_outbox_drops_the_oldest_when_full():
+    box = ws_client.StateOutbox(cap=2)
+    for name in ("a", "b", "c"):
+        box.track(State(type="state", entity_id=f"binary_sensor.{name}", state="on", at=datetime.now(UTC)), 0.0)
+    assert [e.entity_id for e in box.pending()] == ["binary_sensor.b", "binary_sensor.c"]
 
 
 async def test_idempotent_command_replay(cloud_mock, tmp_path):
