@@ -24,6 +24,9 @@ class CloudMock:
         self.pair_code: dict[str, Any] | None = None
         # When set, every handshake is refused with this HTTP status instead of upgraded.
         self.reject_status: int | None = None
+        # Tokens the cloud answers 401 for, as it does for a revoked one; each refusal is counted.
+        self.revoked_tokens: set[str] = set()
+        self.refused_tokens: list[str] = []
 
     async def start(self) -> str:
         self._server = await serve(self._handler, "127.0.0.1", 0, process_request=self._process_request)
@@ -32,6 +35,10 @@ class CloudMock:
         return self.url
 
     def _process_request(self, conn: ServerConnection, request):
+        bearer = (request.headers.get("Authorization") or "").removeprefix("Bearer ")
+        if bearer in self.revoked_tokens:
+            self.refused_tokens.append(bearer)
+            return conn.respond(HTTPStatus.UNAUTHORIZED, "revoked\n")
         if self.reject_status is None:
             return None
         return conn.respond(HTTPStatus(self.reject_status), "refused\n")

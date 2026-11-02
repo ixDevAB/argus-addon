@@ -151,7 +151,38 @@ async def test_rotated_token_is_saved_acked_and_used_on_the_next_connect(cloud_m
         assert token_path.read_text() == "fresh-token-abc"
         assert token_path.stat().st_mode & 0o777 == 0o600
         assert not token_path.with_name(token_path.name + ".new").exists()
+        for _ in range(100):
+            if not token_path.with_name(token_path.name + ".previous").exists():
+                break
+            await asyncio.sleep(0.03)
+        assert not token_path.with_name(token_path.name + ".previous").exists()
         assert not task.done()
+    finally:
+        await _stop(task, stop)
+
+
+async def test_a_rotated_token_the_cloud_refuses_falls_back_to_the_one_before_it(cloud_mock, tmp_path):
+    task, _ha, _idem, _q, stop, token_path = await _start_runner(cloud_mock, tmp_path)
+    try:
+        await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
+        cloud_mock.revoked_tokens.add("replaced-token")
+        connects = len(cloud_mock.addon_requests)
+        cmd = {
+            "type": "cmd",
+            "id": "01939999-0000-7000-8000-00000000aa04",
+            "op": "rotate_token",
+            "args": {"install_token": "replaced-token"},
+        }
+        await cloud_mock.send_to_client(cmd)
+        for _ in range(150):
+            if len(cloud_mock.addon_requests) > connects:
+                break
+            await asyncio.sleep(0.03)
+        assert cloud_mock.refused_tokens == ["replaced-token"]
+        assert cloud_mock.addon_requests[-1][1] == "Bearer test-token-xyz"
+        assert token_path.read_text() == "test-token-xyz"
+        assert not token_path.with_name(token_path.name + ".previous").exists()
+        assert not task.done(), "the add-on went back to pairing mode"
     finally:
         await _stop(task, stop)
 

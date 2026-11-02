@@ -147,6 +147,7 @@ async def run(
                 ping_timeout=10,
             ) as ws:
                 log.info("connected", attempt=attempt)
+                _previous(token_path).unlink(missing_ok=True)
                 hello = Hello(type="hello", addon_version=__version__, ha_version=ha_client.version())
                 await ws.send(hello.model_dump_json())
                 if recorder is not None:
@@ -215,6 +216,13 @@ async def run(
             attempt = 0 if rotated else attempt + 1
         except websockets.exceptions.InvalidStatus as exc:
             if exc.response.status_code == 401:
+                previous = _previous(token_path)
+                if previous.exists():
+                    save_token(token_path, previous.read_text().strip())
+                    previous.unlink(missing_ok=True)
+                    log.warning("rotated install token rejected, going back to the one before it")
+                    attempt += 1
+                    continue
                 token_path.unlink(missing_ok=True)
                 log.warning("install token rejected, returning to pairing mode")
                 return
@@ -383,6 +391,10 @@ async def _send_states(ws, ha_client, timeout: float) -> None:
     await _send_presence(ws, ha_client, timeout)
 
 
+def _previous(token_path: Path) -> Path:
+    return token_path.with_name(token_path.name + ".previous")
+
+
 async def _take_rotated_token(ws, cmd: Cmd, token_path: Path) -> bool:
     """Keep the token the server handed over and ack it; the caller reconnects with it.
 
@@ -394,6 +406,9 @@ async def _take_rotated_token(ws, cmd: Cmd, token_path: Path) -> bool:
         await ws.send(Ack(type="ack", id=cmd.id, error="no install_token").model_dump_json())
         return False
     try:
+        # The token in use stays beside the new one until a connect with the new one succeeds:
+        # a newer rotation may have replaced it on the way, and the old one is still live then.
+        save_token(_previous(token_path), token_path.read_text().strip())
         save_token(token_path, token.strip())
     except OSError as exc:
         await ws.send(Ack(type="ack", id=cmd.id, error=f"token not saved: {exc}").model_dump_json())
