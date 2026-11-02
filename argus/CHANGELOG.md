@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.16.0
+
+- Keeps every state change until Argus acks it and sends the unacked ones again on the next connection, so a door or motion in flight when the link drops is no longer lost. Needs backend 1.16.0 or later for the acks; with an older backend changes are sent again after 20 s.
+- Keeps the token it was using beside a rotated one until the new one connects, and goes back to it if Argus refuses the new one, instead of returning to pairing mode.
+
 ## 1.15.0
 
 - Tells Argus in every heartbeat whether Home Assistant is reachable, so a home whose add-on has lost Home Assistant reads offline instead of watched.
