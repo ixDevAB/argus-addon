@@ -1,0 +1,35 @@
+name: "addon-ci"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+# This repo is public, so GitHub-hosted runners cost nothing here; the backend repo's own runner
+# is not shared with it. A job longer than its timeout is a hung test.
+
+concurrency:
+  group: "addon-ci-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  addon:
+    name: "ruff + pytest"
+    runs-on: "ubuntu-24.04"
+    timeout-minutes: 10
+    steps:
+      - name: "checkout"
+        uses: "actions/checkout@v4"
+      - name: "install-uv"
+        uses: "astral-sh/setup-uv@v6"
+      - name: "ruff"
+        working-directory: "./argus"
+        timeout-minutes: 5
+        run: |
+          uv run --extra dev ruff check .
+          uv run --extra dev ruff format --check .
+      - name: "pytest"
+        working-directory: "./argus"
+        timeout-minutes: 8
+        run: "uv run --extra dev pytest -q"
