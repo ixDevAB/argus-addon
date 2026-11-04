@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 from argus_addon.sightings import home_networks, poke, seen_in
 
-# What the Kvarngatan Green answered, trimmed.
+# What the Lakeside Green answered, trimmed.
 ADDRESSES = [
     {"ifname": "lo", "addr_info": [{"family": "inet", "local": "127.0.0.1", "prefixlen": 8, "scope": "host"}]},
     {
@@ -29,11 +29,11 @@ ADDRESSES = [
 ]
 
 NEIGHBOURS = [
-    {"dst": "172.30.33.0", "dev": "hassio", "lladdr": "ae:89:f5:24:8c:f7", "confirmed": 3, "state": ["REACHABLE"]},
-    {"dst": "192.168.184.125", "dev": "end0", "lladdr": "18:e8:29:53:5b:e4", "confirmed": 32, "state": ["REACHABLE"]},
+    {"dst": "172.30.33.0", "dev": "hassio", "lladdr": "02:00:00:00:00:03", "confirmed": 3, "state": ["REACHABLE"]},
+    {"dst": "192.168.184.125", "dev": "end0", "lladdr": "00:00:5e:00:53:04", "confirmed": 32, "state": ["REACHABLE"]},
     {"dst": "192.168.184.197", "dev": "end0", "confirmed": 1, "state": ["FAILED"]},
-    {"dst": "192.168.184.108", "dev": "end0", "lladdr": "c4:c1:7d:68:ca:1b", "confirmed": 266925, "state": ["STALE"]},
-    {"dst": "192.168.184.180", "dev": "end0", "lladdr": "54:2a:1b:57:ab:68", "confirmed": 4, "state": ["DELAY"]},
+    {"dst": "192.168.184.108", "dev": "end0", "lladdr": "00:00:5e:00:53:05", "confirmed": 266925, "state": ["STALE"]},
+    {"dst": "192.168.184.180", "dev": "end0", "lladdr": "00:00:5e:00:53:06", "confirmed": 4, "state": ["DELAY"]},
 ]
 
 
@@ -45,8 +45,8 @@ def test_a_device_that_answered_lately_is_seen_when_it_did():
     now = datetime(2026, 10, 20, 21, 0, 0, tzinfo=UTC)
     got = seen_in(NEIGHBOURS, {"end0"}, now)
     assert [(s.mac, s.ip, s.at.strftime("%H:%M:%S")) for s in got] == [
-        ("18:E8:29:53:5B:E4", "192.168.184.125", "20:59:28"),
-        ("54:2A:1B:57:AB:68", "192.168.184.180", "20:59:56"),
+        ("00:00:5E:00:53:04", "192.168.184.125", "20:59:28"),
+        ("00:00:5E:00:53:06", "192.168.184.180", "20:59:56"),
     ], "a failed or long-unconfirmed entry and Home Assistant's own containers are not sightings"
 
 
@@ -74,7 +74,7 @@ async def test_the_loop_sends_each_sweep_and_survives_a_failed_one():
         calls += 1
         if calls == 1:
             raise RuntimeError("ip: not found")
-        return [Sighting(mac="18:E8:29:53:5B:E4", ip="192.168.184.125", at=datetime(2026, 10, 20, 21, 0, tzinfo=UTC))]
+        return [Sighting(mac="00:00:5E:00:53:04", ip="192.168.184.125", at=datetime(2026, 10, 20, 21, 0, tzinfo=UTC))]
 
     task = asyncio.create_task(_sightings_loop(Ws(), sweeper=sweeper, every=0.01))
     for _ in range(100):
@@ -83,4 +83,4 @@ async def test_the_loop_sends_each_sweep_and_survives_a_failed_one():
         await asyncio.sleep(0.01)
     task.cancel()
     assert sent[0]["type"] == "sightings"
-    assert sent[0]["devices"][0]["mac"] == "18:E8:29:53:5B:E4"
+    assert sent[0]["devices"][0]["mac"] == "00:00:5E:00:53:04"

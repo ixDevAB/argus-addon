@@ -551,27 +551,27 @@ async def test_fetch_entities_syncs_battery_sensors_with_level_and_skips_other_s
 def test_tracker_from_state_reads_persons_and_device_trackers_only():
     person = tracker_from_state(
         {
-            "entity_id": "person.alexander",
+            "entity_id": "person.charlotte",
             "state": "home",
-            "attributes": {"friendly_name": "Alexander", "device_trackers": ["device_tracker.iphone", 7]},
+            "attributes": {"friendly_name": "Charlotte", "device_trackers": ["device_tracker.iphone", 7]},
             "last_changed": "2026-10-20T07:00:00Z",
         }
     )
     assert person is not None
     assert person.kind == "person"
-    assert person.name == "Alexander"
+    assert person.name == "Charlotte"
     assert person.device_trackers == ["device_tracker.iphone"]
     assert person.changed_at.isoformat() == "2026-10-20T07:00:00+00:00"
     router = tracker_from_state(
         {
             "entity_id": "device_tracker.okand",
             "state": "home",
-            "attributes": {"source_type": "router", "mac": "1a:e8:29:53:59:3a"},
+            "attributes": {"source_type": "router", "mac": "02:00:00:00:00:01"},
         }
     )
     assert router is not None
     assert router.source_type == "router"
-    assert router.mac == "1A:E8:29:53:59:3A"
+    assert router.mac == "02:00:00:00:00:01"
     assert person.mac is None
     assert router.name is None
     assert tracker_from_state({"entity_id": "binary_sensor.door", "state": "on"}) is None
@@ -582,7 +582,7 @@ def test_tracker_from_state_keeps_when_a_scanner_last_reached_the_device():
     def gone(reachable):
         return tracker_from_state(
             {
-                "entity_id": "device_tracker.milli",
+                "entity_id": "device_tracker.gerda",
                 "state": "not_home",
                 "attributes": {"source_type": "router", "last_time_reachable": reachable},
                 "last_changed": "2026-10-20T17:02:00+00:00",
@@ -676,7 +676,7 @@ def test_a_scanned_phone_left_when_a_scan_last_reached_it():
 
 def test_a_location_comes_and_goes_as_it_says():
     app = tracker_from_state(
-        {"entity_id": "device_tracker.alexanders_iphone", "state": "not_home", "attributes": {"source_type": "gps"}}
+        {"entity_id": "device_tracker.charlottes_iphone", "state": "not_home", "attributes": {"source_type": "gps"}}
     )
     rows = [
         {"s": "not_home", "lu": _ts(6, 0)},
@@ -697,7 +697,7 @@ def test_a_location_comes_and_goes_as_it_says():
 async def test_the_history_of_every_tracker_comes_back_oldest_first(ha_mock):
     ha_mock.history = {
         "device_tracker.phone": [{"s": "home", "lu": _ts(6, 0)}, {"s": "not_home", "lu": _ts(19, 0)}],
-        "person.milli": [{"s": "home", "lu": _ts(6, 0)}, {"s": "not_home", "lu": _ts(18, 44)}],
+        "person.gerda": [{"s": "home", "lu": _ts(6, 0)}, {"s": "not_home", "lu": _ts(18, 44)}],
     }
     client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
     await client.connect()
@@ -706,10 +706,10 @@ async def test_the_history_of_every_tracker_comes_back_oldest_first(ha_mock):
             tracker_from_state(
                 {"entity_id": "device_tracker.phone", "state": "not_home", "attributes": {"source_type": "router"}}
             ),
-            tracker_from_state({"entity_id": "person.milli", "state": "not_home", "attributes": {}}),
+            tracker_from_state({"entity_id": "person.gerda", "state": "not_home", "attributes": {}}),
         ]
         got, reaches = await client.fetch_tracker_history(_since(), trackers)
-        assert [t.entity_id for t in got] == ["person.milli", "device_tracker.phone"]
+        assert [t.entity_id for t in got] == ["person.gerda", "device_tracker.phone"]
         assert reaches == [], "a phone with no address is no device on the network"
         assert ha_mock.history_requests[0]["entity_ids"] == ["device_tracker.phone"]
         assert ha_mock.history_requests[0]["no_attributes"] is False, (
@@ -720,11 +720,11 @@ async def test_the_history_of_every_tracker_comes_back_oldest_first(ha_mock):
 
 
 def test_a_walk_inside_the_scanners_grace_shows_as_a_gap_in_its_reaches():
-    vidar = tracker_from_state(
+    henry = tracker_from_state(
         {
-            "entity_id": "device_tracker.nmap_tracker_56_c9_55_3e_5b_be",
+            "entity_id": "device_tracker.nmap_tracker_02_00_00_00_00_02",
             "state": "home",
-            "attributes": {"source_type": "router", "mac": "56:c9:55:3e:5b:be"},
+            "attributes": {"source_type": "router", "mac": "02:00:00:00:00:02"},
         }
     )
 
@@ -733,10 +733,10 @@ def test_a_walk_inside_the_scanners_grace_shows_as_a_gap_in_its_reaches():
         return {"s": state, "a": {"last_time_reachable": at, "ip": "192.168.184.175"}, "lu": _ts(hh, mm, ss)}
 
     rows = [scan(14, 38, 22), scan(14, 40, 24), scan(14, 42, 23), scan(14, 44, 24), scan(15, 18, 24), scan(15, 20, 24)]
-    got = history_reaches(vidar, rows, _since())
+    got = history_reaches(henry, rows, _since())
     assert [(s.mac, s.since.strftime("%H:%M:%S"), s.at.strftime("%H:%M:%S")) for s in got] == [
-        ("56:C9:55:3E:5B:BE", "12:38:22", "12:44:24"),
-        ("56:C9:55:3E:5B:BE", "13:18:24", "13:20:24"),
+        ("02:00:00:00:00:02", "12:38:22", "12:44:24"),
+        ("02:00:00:00:00:02", "13:18:24", "13:20:24"),
     ], "one sighting per stretch, first scan to last, so the half hour out the door is a gap"
     assert got[0].ip == "192.168.184.175"
     app = tracker_from_state({"entity_id": "device_tracker.app", "state": "home", "attributes": {"source_type": "gps"}})
@@ -801,7 +801,7 @@ async def test_a_lock_is_synced_and_its_state_says_who_turned_it(ha_mock):
     ha_mock.states = {
         "lock.ytterdorr": {
             "state": "unlocked",
-            "attributes": {"changed_by": "Vidar", "battery_level": 92, "supported_features": 1},
+            "attributes": {"changed_by": "Henry", "battery_level": 92, "supported_features": 1},
         },
         "binary_sensor.ytterdorr_dorr": {"state": "off", "attributes": {"device_class": "door"}},
     }
@@ -813,6 +813,6 @@ async def test_a_lock_is_synced_and_its_state_says_who_turned_it(ha_mock):
         assert entities["lock.ytterdorr"].device_id == "dev-door"
         states = {row["entity_id"]: row for row in await client.fetch_states()}
         assert states["lock.ytterdorr"]["state"] == "unlocked"
-        assert states["lock.ytterdorr"]["attributes"] == {"changed_by": "Vidar", "battery_level": 92}
+        assert states["lock.ytterdorr"]["attributes"] == {"changed_by": "Henry", "battery_level": 92}
     finally:
         await client.close()

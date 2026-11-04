@@ -432,11 +432,11 @@ async def test_presence_sent_in_full_on_connect(cloud_mock, tmp_path):
     ha = FakeHaClient()
     ha.trackers = [
         Tracker(
-            entity_id="person.alexander",
+            entity_id="person.charlotte",
             kind="person",
-            name="Alexander",
+            name="Charlotte",
             state="home",
-            device_trackers=["device_tracker.alexanders_iphone"],
+            device_trackers=["device_tracker.charlottes_iphone"],
             changed_at=datetime(2026, 10, 20, 7, 0, tzinfo=UTC),
         )
     ]
@@ -444,8 +444,8 @@ async def test_presence_sent_in_full_on_connect(cloud_mock, tmp_path):
     try:
         env = await cloud_mock.wait_for(lambda e: e.get("type") == "presence", timeout=3.0)
         assert env["full"] is True
-        assert env["trackers"][0]["entity_id"] == "person.alexander"
-        assert env["trackers"][0]["device_trackers"] == ["device_tracker.alexanders_iphone"]
+        assert env["trackers"][0]["entity_id"] == "person.charlotte"
+        assert env["trackers"][0]["device_trackers"] == ["device_tracker.charlottes_iphone"]
     finally:
         await _stop(task, stop)
 
@@ -729,17 +729,17 @@ async def test_state_forwarder_sends_presence_changes_and_skips_position_updates
 
     queue: asyncio.Queue = asyncio.Queue()
     forward = _build_state_forwarder(queue)
-    phone = {"friendly_name": "Alexanders iPhone", "source_type": "router"}
-    await forward(_presence_event("device_tracker.alexanders_iphone", "home", "home", {**phone, "latitude": 59.3}))
+    phone = {"friendly_name": "Charlottes iPhone", "source_type": "router"}
+    await forward(_presence_event("device_tracker.charlottes_iphone", "home", "home", {**phone, "latitude": 59.3}))
     assert queue.empty()
-    await forward(_presence_event("device_tracker.alexanders_iphone", "home", "not_home", phone))
+    await forward(_presence_event("device_tracker.charlottes_iphone", "home", "not_home", phone))
     sent = queue.get_nowait()
     assert sent.type == "presence"
     assert sent.full is False
     assert sent.trackers[0].kind == "device_tracker"
     assert sent.trackers[0].state == "not_home"
     assert sent.trackers[0].source_type == "router"
-    assert sent.trackers[0].name == "Alexanders iPhone"
+    assert sent.trackers[0].name == "Charlottes iPhone"
 
 
 async def test_each_scan_that_reaches_a_phone_at_home_is_a_sighting():
@@ -747,9 +747,9 @@ async def test_each_scan_that_reaches_a_phone_at_home_is_a_sighting():
 
     queue: asyncio.Queue = asyncio.Queue()
     forward = _build_state_forwarder(queue)
-    phone = {"source_type": "router", "mac": "56:c9:55:3e:5b:be", "ip": "192.168.184.175"}
+    phone = {"source_type": "router", "mac": "02:00:00:00:00:02", "ip": "192.168.184.175"}
     event = _presence_event(
-        "device_tracker.nmap_tracker_56_c9_55_3e_5b_be",
+        "device_tracker.nmap_tracker_02_00_00_00_00_02",
         "home",
         "home",
         {**phone, "last_time_reachable": "2026-10-21T14:44:24+02:00"},
@@ -759,11 +759,11 @@ async def test_each_scan_that_reaches_a_phone_at_home_is_a_sighting():
     sent = queue.get_nowait()
     assert sent.type == "sightings"
     assert [(s.mac, s.ip, s.at.isoformat()) for s in sent.devices] == [
-        ("56:C9:55:3E:5B:BE", "192.168.184.175", "2026-10-21T12:44:24+00:00")
+        ("02:00:00:00:00:02", "192.168.184.175", "2026-10-21T12:44:24+00:00")
     ]
     assert queue.empty(), "the same state is no presence news"
     away = _presence_event(
-        "device_tracker.nmap_tracker_56_c9_55_3e_5b_be",
+        "device_tracker.nmap_tracker_02_00_00_00_00_02",
         "home",
         "not_home",
         {**phone, "last_time_reachable": "2026-10-21T14:44:24+02:00"},
