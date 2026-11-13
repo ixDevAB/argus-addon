@@ -790,7 +790,7 @@ async def test_fetch_sends_siren_features_buttons_and_config_switch_values(ha_mo
 async def test_a_lock_is_synced_and_its_state_says_who_turned_it(ha_mock):
     ha_mock.devices = [{"id": "dev-door", "name": "Ytterdörr", "name_by_user": None, "area_id": None}]
     ha_mock.entities = [
-        {"entity_id": "lock.ytterdorr", "platform": "yale", "device_id": "dev-door"},
+        {"entity_id": "lock.ytterdorr", "platform": "yale", "device_id": "dev-door", "unique_id": "A1_lock"},
         {
             "entity_id": "binary_sensor.ytterdorr_dorr",
             "platform": "yale",
@@ -811,6 +811,8 @@ async def test_a_lock_is_synced_and_its_state_says_who_turned_it(ha_mock):
         entities = {e.entity_id: e for e in await client.fetch_entities()}
         assert entities["lock.ytterdorr"].domain == "lock"
         assert entities["lock.ytterdorr"].device_id == "dev-door"
+        assert entities["lock.ytterdorr"].unique_id == "A1_lock"
+        assert entities["binary_sensor.ytterdorr_dorr"].unique_id is None
         states = {row["entity_id"]: row for row in await client.fetch_states()}
         assert states["lock.ytterdorr"]["state"] == "unlocked"
         assert states["lock.ytterdorr"]["attributes"] == {"changed_by": "Henry", "battery_level": 92}

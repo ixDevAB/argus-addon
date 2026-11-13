@@ -38,6 +38,9 @@ class EntityRef(BaseModel):
     # The owning integration's iot_class from its manifest (cloud_push, local_polling, ...). A
     # cloud device can be reported by more than one home, a local one is in the home that sees it.
     iot_class: str | None = None
+    # Home Assistant's own id for the entity within its integration. One cloud account's lock has
+    # the same id on every Home Assistant the account is on, so the cloud knows it is one lock.
+    unique_id: str | None = None
 
 
 class DeviceRef(BaseModel):

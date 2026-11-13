@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.0
+
+- Sends each entity's Home Assistant unique id, so a lock one cloud account reports to two homes is known to be one lock and its unlocks are recorded once, in the home its door is in. Needs backend 1.17.0 or later.
+
 ## 1.16.0
 
 - Keeps every state change until Argus acks it and sends the unacked ones again on the next connection, so a door or motion in flight when the link drops is no longer lost. Needs backend 1.16.0 or later, which acks them.

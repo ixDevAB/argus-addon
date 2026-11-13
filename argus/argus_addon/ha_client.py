@@ -679,6 +679,7 @@ class HaClient:
                     platform=row.get("platform"),
                     translation_key=translation_key,
                     iot_class=iot_class.get(row.get("platform") or ""),
+                    unique_id=row["unique_id"] if isinstance(row.get("unique_id"), str) else None,
                 )
             )
         # The units behind those entities, plus the hubs they hang off, so the app can show a
