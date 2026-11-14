@@ -22,6 +22,8 @@ COPY pyproject.toml ./
 RUN pip install --no-cache-dir .
 
 COPY argus_addon/ ./argus_addon/
+# The version the add-on reports to Argus is read from here.
+COPY config.yaml ./config.yaml
 COPY run.sh /run.sh
 RUN chmod +x /run.sh
 

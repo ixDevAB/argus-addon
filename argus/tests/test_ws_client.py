@@ -1,8 +1,9 @@
 import asyncio
 import contextlib
+import re
 from datetime import UTC, datetime, timedelta
 
-from argus_addon import ws_client
+from argus_addon import __version__, ws_client
 from argus_addon.envelope import EntityRef, State
 from argus_addon.idempotency import Idempotency
 
@@ -111,7 +112,10 @@ async def test_handshake_sends_hello(cloud_mock, tmp_path):
     task, _ha, _idem, _q, stop, _tp = await _start_runner(cloud_mock, tmp_path)
     try:
         env = await cloud_mock.wait_for(lambda e: e.get("type") == "hello", timeout=3.0)
-        assert env["addon_version"] == "0.1.0"
+        assert env["addon_version"] == __version__
+        assert re.fullmatch(r"\d+\.\d+\.0", __version__), (
+            "the hello carries the version in config.yaml, not a placeholder"
+        )
         assert env["ha_version"] == "2026.5.0"
     finally:
         await _stop(task, stop)

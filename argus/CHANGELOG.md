@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.0
+
+- Reports its real version to Argus. Until now every add-on said 0.1.0, whatever it was, so support and the admin page could not tell which add-on a home ran.
+
 ## 1.17.0
 
 - Sends each entity's Home Assistant unique id, so a lock one cloud account reports to two homes is known to be one lock and its unlocks are recorded once, in the home its door is in. Needs backend 1.17.0 or later.
