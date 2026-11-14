@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import random
 import ssl
@@ -148,6 +149,10 @@ async def run(
             ) as ws:
                 log.info("connected", attempt=attempt)
                 _previous(token_path).unlink(missing_ok=True)
+                # Home Assistant names its version in its handshake, so it is reached before the
+                # hello; one that does not answer in time is said to be unknown, as before.
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(ha_client.ensure_connected(), timeout=10)
                 hello = Hello(type="hello", addon_version=__version__, ha_version=ha_client.version())
                 await ws.send(hello.model_dump_json())
                 if recorder is not None:

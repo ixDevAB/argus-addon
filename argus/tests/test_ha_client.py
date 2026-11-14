@@ -787,17 +787,6 @@ async def test_fetch_sends_siren_features_buttons_and_config_switch_values(ha_mo
         await client.close()
 
 
-async def test_the_version_is_asked_for_when_the_handshake_names_none(ha_mock):
-    ha_mock.handshake_version = None
-    client = HaClient(supervisor_token="test-token", ws_url=ha_mock.url)
-    await client.connect()
-    try:
-        assert client.version() == "2026.5.0"
-        assert {row["entity_id"] for row in await client.fetch_states()} == set(ha_mock.states)
-    finally:
-        await client.close()
-
-
 async def test_a_lock_is_synced_and_its_state_says_who_turned_it(ha_mock):
     ha_mock.devices = [{"id": "dev-door", "name": "Ytterdörr", "name_by_user": None, "area_id": None}]
     ha_mock.entities = [

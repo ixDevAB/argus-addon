@@ -1,8 +1,12 @@
 # Changelog
 
+## 1.20.0
+
+- Reports Home Assistant's version to Argus: it connects to Home Assistant before it says hello, where it used to say hello first and so said unknown.
+
 ## 1.19.0
 
-- Reports Home Assistant's version to Argus. Under the Supervisor the connection named none, so every home said unknown.
+- An attempt at the same that asked the wrong question; superseded by 1.20.0.
 
 ## 1.18.0
 

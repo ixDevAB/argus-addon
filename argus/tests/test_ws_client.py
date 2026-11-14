@@ -14,7 +14,7 @@ class FakeHaClient:
 
     def __init__(self):
         self.calls: list[dict] = []
-        self._version = "2026.5.0"
+        self._version = "unknown"
         self.entities: list = []
         self.states: list = []
         self.trackers: list = []
@@ -22,6 +22,10 @@ class FakeHaClient:
 
     def version(self) -> str:
         return self._version
+
+    async def ensure_connected(self):
+        # The version is only known once Home Assistant has answered.
+        self._version = "2026.5.0"
 
     async def fetch_entities(self):
         return list(self.entities)

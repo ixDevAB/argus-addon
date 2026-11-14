@@ -38,8 +38,6 @@ class HaMock:
         self.devices: list[dict[str, Any]] = []
         # integration domain -> iot_class; served by manifest/list.
         self.iot_classes: dict[str, str] = {"zha": "local_push", "hue": "local_push", "reolink": "local_push"}
-        # The version the handshake names; None is the Supervisor's proxy, which names none.
-        self.handshake_version: str | None = "2026.5.0"
         self.service_calls: list[dict[str, Any]] = []
         # When set, call_service answers success false with this error, as HA does for a refused call.
         self.service_error: dict[str, Any] | None = None
@@ -88,8 +86,7 @@ class HaMock:
         await ws.prepare(request)
         async with self._lock:
             self._sockets.append(ws)
-        version = {"ha_version": self.handshake_version} if self.handshake_version else {}
-        await ws.send_json({"type": "auth_required", **version})
+        await ws.send_json({"type": "auth_required", "ha_version": "2026.5.0"})
         async for msg in ws:
             if msg.type != WSMsgType.TEXT:
                 continue
@@ -97,7 +94,7 @@ class HaMock:
             if data.get("type") == "auth":
                 self.auth_token = data.get("access_token")
                 if self.auth_token:
-                    await ws.send_json({"type": "auth_ok", **version})
+                    await ws.send_json({"type": "auth_ok", "ha_version": "2026.5.0"})
                 else:
                     await ws.send_json({"type": "auth_invalid", "message": "missing token"})
                     await ws.close()
@@ -105,9 +102,7 @@ class HaMock:
                 continue
             msg_id = data.get("id")
             kind = data.get("type")
-            if kind == "get_config":
-                await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": {"version": "2026.5.0"}})
-            elif kind == "config/entity_registry/list":
+            if kind == "config/entity_registry/list":
                 await ws.send_json({"id": msg_id, "type": "result", "success": True, "result": list(self.entities)})
             elif kind == "config/entity_registry/update":
                 self.registry_updates.append({k: v for k, v in data.items() if k not in ("id", "type")})
