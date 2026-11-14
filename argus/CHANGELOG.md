@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.19.0
+
+- Reports Home Assistant's version to Argus. Under the Supervisor the connection named none, so every home said unknown.
+
 ## 1.18.0
 
 - Reports its real version to Argus. Until now every add-on said 0.1.0, whatever it was, so support and the admin page could not tell which add-on a home ran.

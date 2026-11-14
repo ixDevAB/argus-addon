@@ -306,6 +306,15 @@ class HaClient:
             raise RuntimeError(f"auth failed: {auth_reply}")
         self._ha_version = auth_reply.get("ha_version", self._ha_version)
         self._next_id = 1
+        if self._ha_version is None:
+            # The Supervisor's proxy answers the handshake itself and names no version, so Home
+            # Assistant is asked. The reader is not running yet; the reply is the next frame.
+            await self._ws.send_json({"id": 1, "type": "get_config"})
+            self._next_id = 2
+            with contextlib.suppress(TimeoutError, TypeError, ValueError):
+                config = await asyncio.wait_for(self._ws.receive_json(), timeout=10)
+                if config.get("id") == 1 and config.get("success"):
+                    self._ha_version = (config.get("result") or {}).get("version")
         for fut in self._pending.values():
             if not fut.done():
                 fut.set_exception(ConnectionResetError("ha_client reconnected"))
